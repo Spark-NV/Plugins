@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <WarningsNotAsErrors>1591;SA0001</WarningsNotAsErrors>
+        <nullable>enable</nullable>
+        <NoWarn>$(NoWarn);1591;SA0001</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Jellyfin.Controller" Version="10.11.0" />
+        <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.4" />
+    </ItemGroup>
+
+    <!-- Code Analyzers-->
+    <ItemGroup>
+        <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
+        <PackageReference Include="StyleCop.Analyzers" Version="1.1.118" PrivateAssets="All" />
+        <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
+    </ItemGroup>
+    <ItemGroup>
+      <None Remove="Configuration\configPage.html" />
+      <EmbeddedResource Include="Configuration\configPage.html" />
+    </ItemGroup>
+
+    <PropertyGroup>
+        <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+</Project>

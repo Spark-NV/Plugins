@@ -1,0 +1,17 @@
+---
+name: "Simkl"
+guid: "ce05df96-ddc3-43a2-915c-536f1ad61556"
+version: 7
+targetAbi: "10.11.0.0"
+framework: "net9.0"
+owner: "crobibero"
+overview: "Scrobble to Simkl"
+description: >
+  Scrobble your watched Movies, TV Shows and Anime to Simkl and share your progress with friends!
+
+category: "General"
+artifacts:
+  - "Jellyfin.Plugin.Simkl.dll"
+changelog: |-
+  - Jellyfin 10.11 support (#47) @crobibero
+  - Change Error Logging (#37) @JamsRepos

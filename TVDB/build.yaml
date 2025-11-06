@@ -1,0 +1,17 @@
+name: "TheTVDB"
+guid: "406f38ec-4d4c-4ccc-847d-1838c3aeea0b"
+imageUrl: "https://repo.jellyfin.org/releases/plugin/images/jellyfin-plugin-tvdb.png"
+version: 20
+targetAbi: "10.11.0.0"
+framework: "net9.0"
+owner: "community"
+overview: "Get TV metadata from TheTvdb"
+description: >
+  Get TV metadata from TheTvdb
+
+category: "MoviesAndShows"
+artifacts:
+  - "Jellyfin.Plugin.Tvdb.dll"
+  - "Tvdb.Sdk.dll"
+changelog: |-
+  - Jellyfin 10.11 support (#211) @crobibero

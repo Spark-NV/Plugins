@@ -1,0 +1,68 @@
+<div id="traktConfigurationPage" data-role="page"
+    class="page type-interior pluginConfigurationPage traktConfigurationPage" data-controller="__plugin/traktjs">
+    <div data-role="content">
+        <div class="content-primary">
+
+            <h1>Trakt</h1>
+
+            <form id="traktConfigurationForm">
+
+                <div style="height:0; overflow: hidden;">
+                    <input type="text" name="fakeusernameremembered" tabindex="-1" />
+                    <input type="password" name="fakepasswordremembered" tabindex="-1" />
+                </div>
+
+                <div class="selectContainer">
+                    <select is="emby-select" id="selectUser" name="selectUser" label="Configure trakt.tv for:"></select>
+                </div>
+                <div>
+                    <div class="fieldDescription hide" id="authorizedDescription">
+                        This user is authorized. You can force a re-authorization or unauthorize by clicking one of the
+                        buttons below.
+                    </div>
+                    <button is="emby-button" type="button" id="authorizeDevice" class="raised block">Authorize
+                        device</button>
+                    <div id="activateWithCode" class="hide">
+                        Please visit <a href="https://trakt.tv/activate" class="button-link emby-button"
+                            target="_blank">https://trakt.tv/activate</a> and authorize Jellyfin to access your
+                        account.<br />
+                        Your device code is <span id="userCode"></span>.
+                    </div>
+                    <button is="emby-button" type="button" id="deauthorizeDevice" class="raised block">De-authorize
+                        device</button>
+                </div>
+                <br />
+                <div>
+                    <h3>Trakt List Stub Creation</h3>
+                    <div class="selectContainer">
+                        <select is="emby-select" id="selectTraktList" name="selectTraktList" label="Select Trakt List:"></select>
+                        <button is="emby-button" type="button" id="refreshLists" class="raised block">Refresh Lists</button>
+                    </div>
+                    <div class="selectContainer">
+                        <select is="emby-select" id="selectMovieLibraryPath" name="selectMovieLibraryPath" label="Target Library Path for Movies:"></select>
+                    </div>
+                    <div class="selectContainer">
+                        <select is="emby-select" id="selectTvLibraryPath" name="selectTvLibraryPath" label="Target Library Path for TV Shows:"></select>
+                    </div>
+                    <button is="emby-button" type="button" id="createStubs" class="raised block">Create Stub Files</button>
+                    <div id="stubCreationStatus" class="hide"></div>
+                </div>
+                <br />
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label>
+                        <input is="emby-checkbox" type="checkbox" id="chkExtraLogging" name="chkExtraLogging" />
+                        <span>Enable debug logging</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">
+                        When enabled, all data sent to trakt.tv is logged.
+                    </div>
+                </div>
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                        <span>${Save}</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
