@@ -1,0 +1,942 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Auto Collections</title>
+    <style>      
+    .title-match-container {
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+      }
+      .match-type-container {
+        width: 100px;
+        margin-right: 10px;
+      }
+      .match-type-select {
+        width: 100%;
+      }
+      .title-match-input {
+        flex: 1;
+        margin-right: 10px;
+      }
+      .collection-name-input {
+        flex: 1;
+        margin-right: 10px;
+      }
+      .case-sensitive-check {
+        margin-right: 10px;
+        display: flex;
+        align-items: center;
+      }
+      .case-label {
+        white-space: nowrap;
+        margin-right: 5px;
+      }
+      .add-title-match-button {
+        margin-bottom: 15px;
+      }
+      .remove-button {
+        margin-left: 10px;
+        min-width: 40px;
+      }
+      #title-match-pairs {
+        margin-bottom: 20px;
+      }      .help-text {
+        font-size: 0.9em;
+        color: #888;
+        margin-top: 5px;
+        margin-bottom: 15px;
+      }
+      .expression-container {
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+      }
+      code {
+        background-color: rgba(0, 0, 0, 0.1);
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-family: monospace;
+      }
+      .section-divider {
+        margin-top: 30px;
+        margin-bottom: 20px;
+        border-top: 1px solid rgba(128, 128, 128, 0.2);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div
+      data-role="page"
+      class="page type-interior pluginConfigurationPage tbsConfigurationPage"
+      data-require="emby-input,emby-button,emby-select,emby-checkbox"
+    >
+      <div data-role="content">
+        <div class="content-primary">
+          <form class="tbsConfigurationPage">
+            <div class="sectionTitleContainer flex align-items-center">
+              <h2 class="sectionTitle">Auto Collections</h2>
+              <a
+                is="emby-linkbutton"
+                class="raised button-alt headerHelpButton emby-button"
+                target="_blank"
+                href="https://github.com/KeksBombe/jellyfin-plugin-auto-collections/blob/main/README.md"
+              >Help</a>
+            </div>
+            <div class="verticalSection">
+              <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="tmdb-api-key">TMDB API Settings:</label>
+                <div class="help-text">Configure TMDB API to automatically create collections based on TMDB movie collections (sequels, prequels, etc.). Get your API key from <a href="https://www.themoviedb.org/settings/api" target="_blank">TMDB API Settings</a>.</div>
+                <div style="margin-bottom: 15px;">
+                  <input
+                    id="tmdb-api-key"
+                    is="emby-input"
+                    type="text"
+                    placeholder="Enter TMDB API Key"
+                    style="width: 100%; max-width: 400px; margin-bottom: 10px;"
+                  />
+                  <div style="display: flex; align-items: center; margin-top: 10px;">
+                    <input
+                      id="enable-tmdb-collections"
+                      type="checkbox"
+                      style="margin-right: 8px;"
+                    />
+                    <label for="enable-tmdb-collections" style="font-size: 14px; cursor: pointer;">Enable TMDB Collection Creation</label>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="section-divider"></div>
+              
+              <div class="inputContainer">                <label class="inputLabel inputLabelUnfocused" for="title-match-pairs">Simple Collections:</label>
+                <div class="help-text">Create collections based on a simple string match. Select the type (Title, Studio, Genre, Actor, or Director), choose media type (All, Movies, or Shows), enter the string to match, and provide a collection name.</div>
+                <div id="title-match-pairs"></div>
+              </div>
+              
+              <button
+                id="add-title-match-button"
+                is="emby-button"
+                type="button"
+                class="raised add-title-match-button"
+              >
+                <span>Add Simple Collection</span>              </button>              <div style="margin: 20px 0 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background-color: rgba(0,0,0,0.03);">
+                <h3 style="margin-top: 0; margin-bottom: 10px;">Import/Export Configuration</h3>
+                <p style="margin-bottom: 15px; font-size: 0.9em; color: #555;">
+                  Export your current configuration to a JSON file or import a configuration from a JSON file.
+                </p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                  <button id="export-config-btn" is="emby-button" type="button" class="raised button-submit">
+                    <span>Export Config (JSON)</span>
+                  </button>
+                  <button id="import-overwrite-config-btn" is="emby-button" type="button" class="raised button-submit">
+                    <span>Import Config (Overwrite)</span>
+                  </button>
+                  <input id="import-overwrite-config-input" type="file" accept="application/json" style="display:none;" />
+                  <button id="import-add-config-btn" is="emby-button" type="button" class="raised button-submit">
+                    <span>Import Config (Merge)</span>
+                  </button>
+                  <input id="import-add-config-input" type="file" accept="application/json" style="display:none;" />
+                </div>
+                <div id="import-status" style="margin-top: 10px; font-size: 0.9em;"></div>
+              </div>
+
+              <div class="section-divider"></div>
+              
+              <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="expression-collections">Advanced Collections:</label>
+                <div class="help-text">
+                  Create collections using complex boolean expressions. Examples:<br>
+                  <code>TITLE "Avengers"</code> - Items with "Avengers" in the title<br>
+                  <code>FILENAME "REMUX"</code> - Items with "REMUX" in the filename<br>
+                  <code>STUDIO "Marvel" AND GENRE "Action"</code> - Marvel action items<br>
+                  <code>STUDIO "Marvel" AND (TITLE "Spiderman" OR ACTOR "Robert Downey JR.")</code> - Marvel items with Spiderman in the title or starring Robert Downey Jr.<br>
+                  <code>GENRE "Action" AND MOVIE</code> - Action movies only (no TV shows)<br>
+                  <code>TITLE "Avengers" OR (GENRE "Action" AND SHOW)</code> - Anything with "Avengers" in the title, plus Action TV shows<br>
+                  <br>
+                  <strong>New Filter Types:</strong><br>
+                  <code>TAG "Family" AND MOVIE</code> - Movies with the "Family" tag<br>
+                  <code>PARENTALRATING "PG-13" AND GENRE "Horror"</code> - PG-13 horror content<br>
+                  <code>COMMUNITYRATING ">8.5"</code> - Items rated above 8.5<br>                  <code>CRITICSRATING ">75" AND GENRE "Drama"</code> - Well-reviewed dramas<br>
+                  <code>PRODUCTIONLOCATION "Germany" OR PRODUCTIONLOCATION "Austria"</code> - German or Austrian content<br>
+                  <code>CUSTOMRATING "PG-13" OR CUSTOMRATING "PG"</code> - Items with specified custom ratings<br>
+                  <code>CUSTOMRATING "<=7" AND MOVIE</code> - Movies with custom rating numeric value 7 or below (if numeric values stored)
+                  <br>
+                  <strong>Year Filters:</strong><br>                  <code>YEAR "&lt;2000"</code> - Content from before 2000<br>
+                  <code>YEAR "&gt;2010"</code> - Content from after 2010<br>
+                  <code>YEAR "=1994"</code> - Content from exactly 1994<br>
+                  <code>YEAR "&gt;=2000" AND YEAR "&lt;=2010"</code> - Content from the 2000s decade<br>
+                  <code>GENRE "Sci-Fi" AND YEAR "&gt;=2000" AND YEAR "&lt;=2010"</code> - Sci-Fi from the 2000s decade
+                  <br>
+                  <strong>Language Filters:</strong><br>
+                  <code>LANG "eng" AND MOVIE</code> - Movies with English audio<br>
+                  <code>SUB "eng" AND MOVIE</code> - Movies with English subtitles<br>
+                  <code>MOVIE AND (LANG "eng" OR SUB "eng")</code> - Movies with either English audio or subtitles<br>
+                  <code>MOVIE AND LANG "fra" AND NOT SUB "eng"</code> - French audio movies without English subtitles
+                </div>
+                <div id="expression-collections"></div>
+              </div>
+              
+              <button
+                id="add-expression-collection-button"
+                is="emby-button"
+                type="button"
+                class="raised add-title-match-button"
+              >
+                <span>Add Advanced Collection</span>
+              </button>
+              
+              <br />
+              <button
+                id="saveConfiguration"
+                is="emby-button"
+                class="raised button-submit block"
+              >
+                <span>Save</span>
+              </button>
+            </div>
+            <br />
+            <button
+              is="emby-button"
+              type="button"
+              class="raised block"
+              id="sync-Auto-collections"
+              onclick="execute()"
+            >
+              <span>Sync Auto Collections</span>
+            </button>
+          </form>
+        </div>
+      </div>      <script type="text/javascript" defer>
+        function createExpressionCollectionElement(expression = '', collectionName = '', caseSensitive = false) {
+          const container = document.createElement('div');
+          container.className = 'expression-container';
+          container.style.display = 'flex';
+          container.style.flexWrap = 'wrap';
+          container.style.alignItems = 'center';
+          container.style.padding = '8px';
+          container.style.marginBottom = '10px';
+          container.style.borderRadius = '4px';
+          container.style.backgroundColor = 'rgba(0,0,0,0.05)';
+          
+          const collectionNameContainer = document.createElement('div');
+          collectionNameContainer.style.flex = '1 1 200px';
+          collectionNameContainer.style.marginRight = '10px';
+          
+          const collectionNameInput = document.createElement('input');
+          collectionNameInput.is = 'emby-input';
+          collectionNameInput.type = 'text';
+          collectionNameInput.className = 'collection-name-input';
+          collectionNameInput.style.width = '100%';
+          collectionNameInput.placeholder = 'Collection Name';
+          collectionNameInput.value = collectionName;
+          
+          collectionNameContainer.appendChild(collectionNameInput);
+          
+          const expressionContainer = document.createElement('div');
+          expressionContainer.style.flex = '1 1 300px';
+          expressionContainer.style.marginRight = '10px';
+          
+          const expressionInput = document.createElement('input');
+          expressionInput.is = 'emby-input';
+          expressionInput.type = 'text';
+          expressionInput.className = 'expression-input';
+          expressionInput.style.width = '100%';
+          expressionInput.placeholder = 'TITLE "Avengers" OR (STUDIO "Marvel" AND GENRE "Action")';
+          expressionInput.value = expression;
+          
+          expressionContainer.appendChild(expressionInput);
+          
+          const caseCheckContainer = document.createElement('div');
+          caseCheckContainer.className = 'case-sensitive-check';
+          caseCheckContainer.style.flex = '0 0 auto';
+          caseCheckContainer.style.display = 'flex';
+          caseCheckContainer.style.alignItems = 'center';
+          caseCheckContainer.style.marginRight = '10px';
+          
+          const caseCheckboxWrapper = document.createElement('div');
+          caseCheckboxWrapper.style.marginRight = '5px';
+          
+          const caseCheckbox = document.createElement('input');
+          caseCheckbox.is = 'emby-checkbox';
+          caseCheckbox.type = 'checkbox';
+          caseCheckbox.className = 'case-sensitive-checkbox';
+          caseCheckbox.checked = caseSensitive;
+          
+          const caseLabel = document.createElement('label');
+          caseLabel.className = 'case-label';
+          caseLabel.textContent = 'Case Sensitive';
+          caseLabel.style.marginLeft = '5px';
+          caseLabel.style.fontSize = '14px';
+          
+          caseCheckboxWrapper.appendChild(caseCheckbox);
+          caseCheckContainer.appendChild(caseCheckboxWrapper);
+          caseCheckContainer.appendChild(caseLabel);
+          
+          const removeButton = document.createElement('button');
+          removeButton.is = 'emby-button';
+          removeButton.type = 'button';
+          removeButton.className = 'remove-button';
+          removeButton.innerHTML = '<span>✕</span>';
+          removeButton.style.flex = '0 0 auto';
+          removeButton.style.minWidth = '32px';
+          removeButton.style.height = '32px';
+          removeButton.style.padding = '0';
+          removeButton.style.borderRadius = '50%';
+          removeButton.onclick = function() {
+            container.remove();
+          };
+          
+          container.appendChild(collectionNameContainer);
+          container.appendChild(expressionContainer);
+          container.appendChild(caseCheckContainer);
+          container.appendChild(removeButton);
+          
+          return container;
+        }
+        
+        function createTitleMatchPairElement(titleMatch = '', collectionName = '', caseSensitive = false, matchType = 0, mediaType = 0) {
+          const container = document.createElement('div');
+          container.className = 'title-match-container';
+          container.style.display = 'flex';
+          container.style.flexWrap = 'wrap';
+          container.style.alignItems = 'center';
+          container.style.padding = '8px';
+          container.style.marginBottom = '10px';
+          container.style.borderRadius = '4px';
+          container.style.backgroundColor = 'rgba(0,0,0,0.05)';
+            
+          const matchTypeContainer = document.createElement('div');
+          matchTypeContainer.className = 'match-type-container';
+          matchTypeContainer.style.marginRight = '10px';
+          matchTypeContainer.style.minWidth = '100px';
+          matchTypeContainer.style.flex = '0 0 100px';
+          
+          const matchTypeSelect = document.createElement('select');
+          matchTypeSelect.is = 'emby-select';
+          matchTypeSelect.className = 'match-type-select';
+            
+          const options = [
+            { value: '0', text: 'Title' },
+            { value: '1', text: 'Genre' },
+            { value: '2', text: 'Studio' },
+            { value: '3', text: 'Actor' },
+            { value: '4', text: 'Director' }
+          ];
+          
+          options.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.text = opt.text;
+            matchTypeSelect.appendChild(option);
+          });
+            
+          if (matchType !== undefined) {
+            matchTypeSelect.value = matchType.toString();
+          }
+          
+          matchTypeContainer.appendChild(matchTypeSelect);
+          
+          const mediaTypeContainer = document.createElement('div');
+          mediaTypeContainer.className = 'media-type-container';
+          mediaTypeContainer.style.marginRight = '10px';
+          mediaTypeContainer.style.minWidth = '100px';
+          mediaTypeContainer.style.flex = '0 0 100px';
+          
+          const mediaTypeSelect = document.createElement('select');
+          mediaTypeSelect.is = 'emby-select';
+          mediaTypeSelect.className = 'media-type-select';
+          
+          const mediaOptions = [
+            { value: '0', text: 'All' },
+            { value: '1', text: 'Movies' },
+            { value: '2', text: 'Shows' }
+          ];
+          
+          mediaOptions.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.text = opt.text;
+            mediaTypeSelect.appendChild(option);
+          });
+          
+          if (mediaType !== undefined) {
+            mediaTypeSelect.value = mediaType.toString();
+          }
+          
+          mediaTypeContainer.appendChild(mediaTypeSelect);
+          
+          setTimeout(() => {
+            if (matchTypeSelect.embyInit) {
+              matchTypeSelect.embyInit();
+            }
+            if (mediaTypeSelect.embyInit) {
+              mediaTypeSelect.embyInit();
+            } else if (window.EmbyWebComponents && window.EmbyWebComponents.autoFocus) {
+              window.EmbyWebComponents.autoFocus(matchTypeSelect.parentNode);
+              window.EmbyWebComponents.autoFocus(mediaTypeSelect.parentNode);
+            }
+          }, 0);
+            
+          const updatePlaceholder = (select) => {
+            const matchType = parseInt(select.value, 10);
+            const input = container.querySelector('.title-match-input');
+            if (input) {
+              switch(matchType) {
+                case 1:
+                  input.placeholder = 'Genre to match (e.g. Action, Comedy)';
+                  break;
+                case 2:
+                  input.placeholder = 'Studio to match (e.g. Marvel, Paramount)';
+                  break;
+                case 3:
+                  input.placeholder = 'Actor name to match (e.g. Tom Hanks, Scarlett)';
+                  break;
+                case 4:
+                  input.placeholder = 'Director name to match (e.g. Spielberg, Nolan)';
+                  break;
+                default:
+                  input.placeholder = 'Text in title to match';
+              }
+            }
+          };
+          
+          matchTypeSelect.addEventListener('change', () => {
+            updatePlaceholder(matchTypeSelect);
+          });
+            
+          const titleMatchContainer = document.createElement('div');
+          titleMatchContainer.style.flex = '1 1 200px';
+          titleMatchContainer.style.marginRight = '10px';
+          
+          const titleMatchInput = document.createElement('input');
+          titleMatchInput.is = 'emby-input';
+          titleMatchInput.type = 'text';
+          titleMatchInput.className = 'title-match-input';
+          titleMatchInput.style.width = '100%';
+          titleMatchInput.placeholder = 'Match String';
+          titleMatchInput.value = titleMatch;
+          
+          titleMatchContainer.appendChild(titleMatchInput);
+          
+          setTimeout(() => updatePlaceholder(matchTypeSelect), 0);
+            
+          const collectionNameContainer = document.createElement('div');
+          collectionNameContainer.style.flex = '1 1 200px';
+          collectionNameContainer.style.marginRight = '10px';
+          
+          const collectionNameInput = document.createElement('input');
+          collectionNameInput.is = 'emby-input';
+          collectionNameInput.type = 'text';
+          collectionNameInput.className = 'collection-name-input';
+          collectionNameInput.style.width = '100%';
+          collectionNameInput.placeholder = 'Collection Name';
+          collectionNameInput.value = collectionName;
+          
+          collectionNameContainer.appendChild(collectionNameInput);
+            
+          const caseCheckContainer = document.createElement('div');
+          caseCheckContainer.className = 'case-sensitive-check';
+          caseCheckContainer.style.flex = '0 0 auto';
+          caseCheckContainer.style.display = 'flex';
+          caseCheckContainer.style.alignItems = 'center';
+          caseCheckContainer.style.marginRight = '10px';
+          
+          const caseCheckboxWrapper = document.createElement('div');
+          caseCheckboxWrapper.style.marginRight = '5px';
+          
+          const caseCheckbox = document.createElement('input');
+          caseCheckbox.is = 'emby-checkbox';
+          caseCheckbox.type = 'checkbox';
+          caseCheckbox.className = 'case-sensitive-checkbox';
+          caseCheckbox.checked = caseSensitive;
+          
+          const caseLabel = document.createElement('label');
+          caseLabel.className = 'case-label';
+          caseLabel.textContent = 'Case Sensitive';
+          caseLabel.style.marginLeft = '5px';
+          caseLabel.style.fontSize = '14px';
+          
+          caseCheckboxWrapper.appendChild(caseCheckbox);
+          caseCheckContainer.appendChild(caseCheckboxWrapper);
+          caseCheckContainer.appendChild(caseLabel);
+            
+          const removeButton = document.createElement('button');
+          removeButton.is = 'emby-button';
+          removeButton.type = 'button';
+          removeButton.className = 'remove-button';
+          removeButton.innerHTML = '<span>✕</span>';
+          removeButton.style.flex = '0 0 auto';
+          removeButton.style.minWidth = '32px';
+          removeButton.style.height = '32px';
+          removeButton.style.padding = '0';
+          removeButton.style.borderRadius = '50%';
+          removeButton.onclick = function() {
+            container.remove();
+          };
+          
+          container.appendChild(matchTypeContainer);
+          container.appendChild(mediaTypeContainer);
+          container.appendChild(titleMatchContainer);
+          container.appendChild(collectionNameContainer);
+          container.appendChild(caseCheckContainer);
+          container.appendChild(removeButton);
+          
+          return container;
+        }
+          function loadConfig() {
+          window.ApiClient.getPluginConfiguration(
+            "06ebf4a9-1326-4327-968d-8da00e1ea2eb"
+          )
+            .then(function (config) {
+              const tmdbApiKeyInput = document.querySelector("#tmdb-api-key");
+              const enableTmdbCollectionsCheckbox = document.querySelector("#enable-tmdb-collections");
+              if (tmdbApiKeyInput && config.TmdbApiKey) {
+                tmdbApiKeyInput.value = config.TmdbApiKey;
+              }
+              if (enableTmdbCollectionsCheckbox) {
+                enableTmdbCollectionsCheckbox.checked = config.EnableTmdbCollections || false;
+              }
+              
+              const titleMatchPairsContainer = document.querySelector("#title-match-pairs");
+              titleMatchPairsContainer.innerHTML = '';
+                
+              if (config.TitleMatchPairs && config.TitleMatchPairs.length > 0) {
+                config.TitleMatchPairs.forEach(pair => {                  
+                  let matchTypeValue = 0;
+                  if (pair.MatchType !== undefined) {
+                    switch (pair.MatchType) {
+                      case "Title":
+                        matchTypeValue = 0;
+                        break;
+                      case "Genre":
+                        matchTypeValue = 1;
+                        break;
+                      case "Studio":
+                        matchTypeValue = 2;
+                        break;
+                      case "Actor":
+                        matchTypeValue = 3;
+                        break;
+                      case "Director":
+                        matchTypeValue = 4;
+                        break;
+                      default:
+                        if (typeof pair.MatchType === 'number') {
+                          matchTypeValue = pair.MatchType;
+                        }
+                    }
+                  }
+
+                  let mediaTypeValue = 0;
+                  if (pair.MediaType !== undefined) {
+                    switch (pair.MediaType) {
+                      case "All":
+                        mediaTypeValue = 0;
+                        break;
+                      case "Movies":
+                        mediaTypeValue = 1;
+                        break;
+                      case "Series":
+                        mediaTypeValue = 2;
+                        break;
+                      default:
+                        if (typeof pair.MediaType === 'number') {
+                          mediaTypeValue = pair.MediaType;
+                        }
+                    }
+                  }
+                  
+                  const element = createTitleMatchPairElement(
+                    pair.TitleMatch, 
+                    pair.CollectionName, 
+                    pair.CaseSensitive, 
+                    matchTypeValue,
+                    mediaTypeValue
+                  );
+                  titleMatchPairsContainer.appendChild(element);
+                });
+              } 
+              else {
+                const element = createTitleMatchPairElement();
+                titleMatchPairsContainer.appendChild(element);
+              }
+              
+
+              const expressionCollectionsContainer = document.querySelector("#expression-collections");
+              expressionCollectionsContainer.innerHTML = '';
+            
+
+              if (config.ExpressionCollections && config.ExpressionCollections.length > 0) {
+                config.ExpressionCollections.forEach(collection => {
+                  const element = createExpressionCollectionElement(
+                    collection.Expression,
+                    collection.CollectionName,
+                    collection.CaseSensitive
+                  );
+                  expressionCollectionsContainer.appendChild(element);
+                });
+              } else {
+                const element = createExpressionCollectionElement();
+                expressionCollectionsContainer.appendChild(element);
+              }
+            })
+            .catch(function (error) {
+              console.error(error);
+              const titleElement = createTitleMatchPairElement();
+              document.querySelector("#title-match-pairs").appendChild(titleElement);
+              
+              const expressionElement = createExpressionCollectionElement();
+              document.querySelector("#expression-collections").appendChild(expressionElement);
+            });
+        }        function saveConfig() {
+          let allExpressionContainers = document.querySelectorAll('.expression-container');
+          let hasErrors = false;
+          
+          allExpressionContainers.forEach(container => {
+            const expressionInput = container.querySelector('.expression-input');
+            if (expressionInput && expressionInput.value.trim()) {
+              const result = validateExpression(expressionInput.value);
+              if (!result.valid) {
+                hasErrors = true;
+                alert(`Expression error: ${result.error} in collection "${container.querySelector('.collection-name-input').value || 'Unnamed'}"`);
+              }
+            }
+          });
+          
+          if (hasErrors) {
+            return;
+          }
+          
+          const titleMatchContainers = document.querySelectorAll('.title-match-container');
+          const titleMatchPairs = [];
+            
+          titleMatchContainers.forEach(container => {
+            const titleMatchInput = container.querySelector('.title-match-input');
+            const collectionNameInput = container.querySelector('.collection-name-input');
+            const caseSensitiveCheckbox = container.querySelector('.case-sensitive-checkbox');
+            const matchTypeSelect = container.querySelector('.match-type-select');
+            const mediaTypeSelect = container.querySelector('.media-type-select');
+              if (titleMatchInput.value.trim()) {
+              const titleMatch = titleMatchInput.value.trim();
+              const collectionName = collectionNameInput.value.trim();
+              const caseSensitive = caseSensitiveCheckbox.checked;
+              const matchTypeValue = parseInt(matchTypeSelect.value, 10);
+              let matchTypeString;
+              switch (matchTypeValue) {
+                case 0:
+                  matchTypeString = "Title";
+                  break;
+                case 1:
+                  matchTypeString = "Genre";
+                  break;
+                case 2:
+                  matchTypeString = "Studio";
+                  break;
+                case 3:
+                  matchTypeString = "Actor";
+                  break;
+                case 4:
+                  matchTypeString = "Director";
+                  break;
+                default:
+                  matchTypeString = "Title";
+              }
+              
+
+              const mediaTypeValue = parseInt(mediaTypeSelect.value, 10);
+              let mediaTypeString;
+              switch (mediaTypeValue) {
+                case 0:
+                  mediaTypeString = "All";
+                  break;
+                case 1:
+                  mediaTypeString = "Movies";
+                  break;
+                case 2:
+                  mediaTypeString = "Series";
+                  break;
+                default:
+                  mediaTypeString = "All";
+              }
+              
+              titleMatchPairs.push({
+                TitleMatch: titleMatch,
+                CollectionName: collectionName || null,
+                CaseSensitive: caseSensitive,
+                MatchType: matchTypeString,
+                MediaType: mediaTypeString
+              });
+            }
+          });
+          const expressionCollections = [];
+          
+          allExpressionContainers.forEach(container => {
+            const expressionInput = container.querySelector('.expression-input');
+            const collectionNameInput = container.querySelector('.collection-name-input');
+            const caseSensitiveCheckbox = container.querySelector('.case-sensitive-checkbox');
+            
+            if (expressionInput.value.trim()) {
+              expressionCollections.push({
+                Expression: expressionInput.value.trim(),
+                CollectionName: collectionNameInput.value.trim() || "Expression Collection",
+                CaseSensitive: caseSensitiveCheckbox.checked
+              });
+            }
+          });
+          
+          const tmdbApiKeyInput = document.querySelector("#tmdb-api-key");
+          const enableTmdbCollectionsCheckbox = document.querySelector("#enable-tmdb-collections");
+          const tmdbApiKey = tmdbApiKeyInput ? tmdbApiKeyInput.value.trim() : '';
+          const enableTmdbCollections = enableTmdbCollectionsCheckbox ? enableTmdbCollectionsCheckbox.checked : false;
+          
+          const config = {
+            TitleMatchPairs: titleMatchPairs,
+            ExpressionCollections: expressionCollections,
+            IsInitialized: true,
+            TmdbApiKey: tmdbApiKey,
+            EnableTmdbCollections: enableTmdbCollections,
+            TagTitlePairs: [],
+            Tags: []
+          };
+          
+          window.ApiClient.updatePluginConfiguration(
+            "06ebf4a9-1326-4327-968d-8da00e1ea2eb",
+            config
+          )
+            .then(() => alert("Update success"))
+            .catch(function (error) {
+              console.error(error);
+              alert("Error saving configuration");
+            });
+        }
+        
+        function execute() {
+          var request = {
+            url: ApiClient.getUrl("/AutoCollections/AutoCollections"),
+            type: "POST"
+          };
+
+          ApiClient.fetch(request)
+            .then(function () {
+              Dashboard.alert("Executing Auto Collections...");
+            })
+            .catch(function () {
+              Dashboard.alert({
+                message: "Unexpected error occurred!"
+              });
+            });
+        }        loadConfig();
+        
+        setTimeout(function() {
+          const tmdbCheckbox = document.querySelector("#enable-tmdb-collections");
+          if (tmdbCheckbox) {
+            tmdbCheckbox.style.cursor = "pointer";
+            const tmdbLabel = document.querySelector('label[for="enable-tmdb-collections"]');
+            if (tmdbLabel) {
+              tmdbLabel.style.cursor = "pointer";
+              tmdbLabel.addEventListener('click', function(e) {
+                if (e.target !== tmdbCheckbox) {
+                  tmdbCheckbox.checked = !tmdbCheckbox.checked;
+                }
+              });
+            }
+            }
+          }, 100);
+        
+        document.querySelector("#saveConfiguration").addEventListener("click", saveConfig);
+        document.querySelector("#add-title-match-button").addEventListener("click", function() {
+          const element = createTitleMatchPairElement();
+          document.querySelector("#title-match-pairs").appendChild(element);
+        });        document.querySelector("#add-expression-collection-button").addEventListener("click", function() {
+          const element = createExpressionCollectionElement();
+          document.querySelector("#expression-collections").appendChild(element);
+          setupExpressionValidation();
+        });
+        
+        setupExpressionValidation();
+        
+        function validateExpression(expressionText) {
+          if (!expressionText || expressionText.trim() === '') {
+            return { valid: false, error: "Expression cannot be empty" };
+          }
+          
+          const quoteCount = (expressionText.match(/"/g) || []).length;
+          if (quoteCount % 2 !== 0) {
+            return { valid: false, error: "Mismatched quotes in expression" };
+          }
+          
+          const openParens = (expressionText.match(/\(/g) || []).length;
+          const closeParens = (expressionText.match(/\)/g) || []).length;
+          if (openParens !== closeParens) {
+            return { valid: false, error: "Mismatched parentheses in expression" };
+          }
+            const criteriaTypes = [
+            "TITLE", "GENRE", "STUDIO", "ACTOR", "DIRECTOR", "MOVIE", "SHOW",
+            "TAG", "PARENTALRATING", "RATING", "COMMUNITYRATING", "CRITICSRATING",
+            "PRODUCTIONLOCATION", "LOCATION", "COUNTRY", "LANG", "SUB", "YEAR", "CUSTOMRATING", "CUSTOM", "FILENAME"
+          ];
+          let hasCriteria = false;
+          
+          for (const type of criteriaTypes) {
+            if (expressionText.toUpperCase().includes(type)) {
+              hasCriteria = true;
+              break;
+            }
+          }            if (!hasCriteria) {
+            return { 
+              valid: false, 
+              error: "Expression must contain at least one criteria (TITLE, GENRE, STUDIO, ACTOR, DIRECTOR, MOVIE, SHOW, TAG, PARENTALRATING, COMMUNITYRATING, CRITICSRATING, PRODUCTIONLOCATION, LANG, SUB, YEAR, FILENAME)" 
+            };
+          }
+          
+          return { valid: true };
+        }
+        
+        function setupExpressionValidation() {
+          const expressionContainers = document.querySelectorAll('.expression-container');
+          
+            expressionContainers.forEach(container => {
+            const expressionInput = container.querySelector('.expression-input');
+            if (expressionInput) {
+              expressionInput.addEventListener('blur', function() {
+                const result = validateExpression(expressionInput.value);
+                
+                const existingError = container.querySelector('.expression-error');
+                if (existingError) {
+                  existingError.remove();
+                }
+                
+                if (!result.valid) {
+                  const errorElement = document.createElement('div');
+                  errorElement.className = 'expression-error';
+                  errorElement.style.color = 'red';
+                  errorElement.style.fontSize = '0.9em';
+                  errorElement.style.marginTop = '5px';
+                  errorElement.textContent = result.error;
+                  
+
+                  expressionInput.parentNode.appendChild(errorElement);
+                }
+              });
+            }
+          });
+        }
+        
+        setupExpressionValidation();
+
+        document.getElementById('export-config-btn').addEventListener('click', function() {
+          fetch(ApiClient.getUrl('AutoCollections/ExportConfiguration'), {
+            method: 'GET',
+            headers: { 
+              'Accept': 'application/json',
+              'X-MediaBrowser-Token': ApiClient.accessToken()
+            }
+          })
+          .then(response => {
+            if (!response.ok) throw new Error('Failed to export configuration: ' + response.statusText);
+            return response.blob();
+          })
+          .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'auto-collections-config.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+            document.getElementById('import-status').textContent = 'Configuration exported successfully.';
+            document.getElementById('import-status').style.color = "#4F8A10";
+          })
+          .catch(err => { 
+            document.getElementById('import-status').textContent = 'Export failed: ' + err.message;
+            document.getElementById('import-status').style.color = "#D8000C";
+            console.error(err); 
+          });
+        });
+
+        document.getElementById('import-overwrite-config-btn').addEventListener('click', function() {
+          document.getElementById('import-overwrite-config-input').click();
+        });
+
+        document.getElementById('import-overwrite-config-input').addEventListener('change', function(event) {
+          handleImportFile(event, 'AutoCollections/ImportConfiguration', 'overwrite');
+        });
+
+        document.getElementById('import-add-config-btn').addEventListener('click', function() {
+          document.getElementById('import-add-config-input').click();
+        });
+
+        document.getElementById('import-add-config-input').addEventListener('change', function(event) {
+          handleImportFile(event, 'AutoCollections/AddConfiguration', 'merge');
+        });
+
+        function handleImportFile(event, endpoint, mode) {
+          const file = event.target.files[0];
+          const statusEl = document.getElementById('import-status');
+          if (!file) return;
+
+          if (!file.name.toLowerCase().endsWith('.json') && file.type !== 'application/json') {
+            statusEl.textContent = 'Please select a JSON file.';
+            statusEl.style.color = "#D8000C";
+            event.target.value = null;
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            let jsonContent = e.target.result;
+            try {
+              jsonContent = jsonContent.replace(/\/\/.*$/gm, '');
+              JSON.parse(jsonContent);
+
+              statusEl.textContent = `Importing and ${mode === 'overwrite' ? 'overwriting' : 'merging'} configuration...`;
+              statusEl.style.color = "#00529B";
+
+              fetch(ApiClient.getUrl(endpoint), {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'X-MediaBrowser-Token': ApiClient.accessToken()
+                },
+                body: jsonContent
+              })
+              .then(response => {
+                if (response.status === 204) {
+                  return { ok: true, message: `Configuration ${mode}d successfully.` };
+                }
+                if (!response.ok && !response.headers.get('content-type')?.includes('application/json')) {
+                  return response.text().then(text => { throw new Error(`Server returned ${response.status}: ${text || response.statusText}`); });
+                }
+                return response.json().catch(() => response.text().then(text => ({ message: text, ok: response.ok, status: response.status })));
+              })
+              .then(data => {
+                if (data.ok || (data.status && data.status >= 200 && data.status < 300) || data.Success) {
+                  statusEl.textContent = `Configuration ${mode}d successfully. Reloading page...`;
+                  statusEl.style.color = "#4F8A10";
+                  setTimeout(() => window.location.reload(), 1500);
+                } else {
+                  const errorMessage = data.message || data.Message || data.error || data.Error || 'Unknown error during import.';
+                  statusEl.textContent = `Import (${mode}) failed: ${errorMessage}`;
+                  statusEl.style.color = "#D8000C";
+                }
+              })
+              .catch(err => {
+                console.error(err);
+                statusEl.textContent = `Import (${mode}) failed: ${err.message}`;
+                statusEl.style.color = "#D8000C";
+              });
+            } catch (err) {
+              statusEl.textContent = 'Invalid JSON file: ' + err.message;
+              statusEl.style.color = "#D8000C";
+            } finally {
+                event.target.value = null;
+            }
+          };
+          reader.readAsText(file);
+        }
+      </script>
+    </div>
+  </body>
+</html>
