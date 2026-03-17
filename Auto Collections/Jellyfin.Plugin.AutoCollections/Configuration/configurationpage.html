@@ -86,14 +86,23 @@
             </div>
             <div class="verticalSection">
               <div class="inputContainer">
-                <label class="inputLabel inputLabelUnfocused" for="tmdb-api-key">TMDB API Settings:</label>
-                <div class="help-text">Configure TMDB API to automatically create collections based on TMDB movie collections (sequels, prequels, etc.). Get your API key from <a href="https://www.themoviedb.org/settings/api" target="_blank">TMDB API Settings</a>.</div>
+                <label class="inputLabel inputLabelUnfocused" for="tmdb-read-access-token">TMDB API Settings:</label>
+                <div class="help-text">Configure TMDB to create collections from TMDB movie collections. You can set either or both keys. Get credentials from <a href="https://www.themoviedb.org/settings/api" target="_blank">TMDB API Settings</a>.</div>
                 <div style="margin-bottom: 15px;">
+                  <label for="tmdb-read-access-token" style="display: block; font-size: 12px; margin-top: 8px; color: rgba(255,255,255,0.7);">API Read Access Token (Bearer) — preferred</label>
+                  <input
+                    id="tmdb-read-access-token"
+                    is="emby-input"
+                    type="text"
+                    placeholder="Read Access Token"
+                    style="width: 100%; max-width: 400px; margin-bottom: 10px;"
+                  />
+                  <label for="tmdb-api-key" style="display: block; font-size: 12px; margin-top: 8px; color: rgba(255,255,255,0.7);">API Key (v3) — alternative</label>
                   <input
                     id="tmdb-api-key"
                     is="emby-input"
                     type="text"
-                    placeholder="Enter TMDB API Key"
+                    placeholder="API Key"
                     style="width: 100%; max-width: 400px; margin-bottom: 10px;"
                   />
                   <div style="display: flex; align-items: center; margin-top: 10px;">
@@ -103,6 +112,51 @@
                       style="margin-right: 8px;"
                     />
                     <label for="enable-tmdb-collections" style="font-size: 14px; cursor: pointer;">Enable TMDB Collection Creation</label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="enable-wikidata-collections">Wikidata API Settings:</label>
+                <div class="help-text">Create collections from Wikidata movie franchises/sequels using the public SPARQL API. Uses IMDb IDs to find series (P179), has parts (P527), and fictional universe (P1445). No API key required.</div>
+                <div style="margin-bottom: 15px;">
+                  <div style="display: flex; align-items: center; margin-top: 8px;">
+                    <input
+                      id="enable-wikidata-collections"
+                      type="checkbox"
+                      style="margin-right: 8px;"
+                    />
+                    <label for="enable-wikidata-collections" style="font-size: 14px; cursor: pointer;">Enable Wikidata Collection Creation</label>
+                  </div>
+                  <label for="collection-index-path" style="display: block; font-size: 12px; margin-top: 12px; color: rgba(255,255,255,0.7);">Collection Index Path</label>
+                  <input
+                    id="collection-index-path"
+                    is="emby-input"
+                    type="text"
+                    placeholder="e.g. C:\Jellyfin\Data\data\plugins\Jellyfin.Plugin.CollectionIndex\index.json or ...\Jellyfin.Plugin.CollectionIndex\"
+                    style="width: 100%; max-width: 500px; margin-top: 4px;"
+                  />
+                  <div class="help-text" style="margin-top: 6px;">Path to CollectionIndex index.json. Accepts full path or directory (index.json appended automatically). Required for deduplication. Requires the CollectionIndex plugin.</div>
+                  <div style="margin-top: 16px; padding: 12px; border: 1px solid rgba(128,128,128,0.3); border-radius: 4px; background: rgba(0,0,0,0.05);">
+                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                      <input
+                        id="wikidata-debug"
+                        type="checkbox"
+                        style="margin-right: 8px;"
+                      />
+                      <label for="wikidata-debug" style="font-size: 14px; cursor: pointer;">Debug mode</label>
+                    </div>
+                    <div class="help-text" style="margin-bottom: 8px;">When enabled, no collections are created. Performs Wikidata requests and writes a log file of findings and what would have been done.</div>
+                    <label for="wikidata-debug-movie-limit" style="display: block; font-size: 12px; margin-top: 8px; color: rgba(255,255,255,0.7);">Max movies to check (1–1000)</label>
+                    <input
+                      id="wikidata-debug-movie-limit"
+                      is="emby-input"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      placeholder="10"
+                      style="width: 100px; margin-top: 4px;"
+                    />
                   </div>
                 </div>
               </div>
@@ -489,13 +543,34 @@
             "06ebf4a9-1326-4327-968d-8da00e1ea2eb"
           )
             .then(function (config) {
+              const tmdbReadAccessTokenInput = document.querySelector("#tmdb-read-access-token");
               const tmdbApiKeyInput = document.querySelector("#tmdb-api-key");
               const enableTmdbCollectionsCheckbox = document.querySelector("#enable-tmdb-collections");
+              if (tmdbReadAccessTokenInput && config.TmdbReadAccessToken) {
+                tmdbReadAccessTokenInput.value = config.TmdbReadAccessToken;
+              }
               if (tmdbApiKeyInput && config.TmdbApiKey) {
                 tmdbApiKeyInput.value = config.TmdbApiKey;
               }
               if (enableTmdbCollectionsCheckbox) {
                 enableTmdbCollectionsCheckbox.checked = config.EnableTmdbCollections || false;
+              }
+              const enableWikidataCollectionsCheckbox = document.querySelector("#enable-wikidata-collections");
+              const collectionIndexPathInput = document.querySelector("#collection-index-path");
+              if (enableWikidataCollectionsCheckbox) {
+                enableWikidataCollectionsCheckbox.checked = config.EnableWikidataCollections || false;
+              }
+              if (collectionIndexPathInput && config.CollectionIndexPath) {
+                collectionIndexPathInput.value = config.CollectionIndexPath;
+              }
+              const wikidataDebugCheckbox = document.querySelector("#wikidata-debug");
+              const wikidataDebugMovieLimitInput = document.querySelector("#wikidata-debug-movie-limit");
+              if (wikidataDebugCheckbox) {
+                wikidataDebugCheckbox.checked = config.WikidataDebug || false;
+              }
+              if (wikidataDebugMovieLimitInput) {
+                const limit = config.WikidataDebugMovieLimit;
+                wikidataDebugMovieLimitInput.value = (limit >= 1 && limit <= 1000) ? String(limit) : "10";
               }
               
               const titleMatchPairsContainer = document.querySelector("#title-match-pairs");
@@ -685,17 +760,38 @@
             }
           });
           
+          const tmdbReadAccessTokenInput = document.querySelector("#tmdb-read-access-token");
           const tmdbApiKeyInput = document.querySelector("#tmdb-api-key");
           const enableTmdbCollectionsCheckbox = document.querySelector("#enable-tmdb-collections");
+          const enableWikidataCollectionsCheckbox = document.querySelector("#enable-wikidata-collections");
+          const collectionIndexPathInput = document.querySelector("#collection-index-path");
+          const wikidataDebugCheckbox = document.querySelector("#wikidata-debug");
+          const wikidataDebugMovieLimitInput = document.querySelector("#wikidata-debug-movie-limit");
+          const tmdbReadAccessToken = tmdbReadAccessTokenInput ? tmdbReadAccessTokenInput.value.trim() : '';
           const tmdbApiKey = tmdbApiKeyInput ? tmdbApiKeyInput.value.trim() : '';
           const enableTmdbCollections = enableTmdbCollectionsCheckbox ? enableTmdbCollectionsCheckbox.checked : false;
+          const enableWikidataCollections = enableWikidataCollectionsCheckbox ? enableWikidataCollectionsCheckbox.checked : false;
+          const collectionIndexPath = collectionIndexPathInput ? collectionIndexPathInput.value.trim() : '';
+          const wikidataDebug = wikidataDebugCheckbox ? wikidataDebugCheckbox.checked : false;
+          let wikidataDebugMovieLimit = 10;
+          if (wikidataDebugMovieLimitInput && wikidataDebugMovieLimitInput.value) {
+            const parsed = parseInt(wikidataDebugMovieLimitInput.value, 10);
+            if (!isNaN(parsed) && parsed >= 1 && parsed <= 1000) {
+              wikidataDebugMovieLimit = parsed;
+            }
+          }
           
           const config = {
             TitleMatchPairs: titleMatchPairs,
             ExpressionCollections: expressionCollections,
             IsInitialized: true,
+            TmdbReadAccessToken: tmdbReadAccessToken,
             TmdbApiKey: tmdbApiKey,
             EnableTmdbCollections: enableTmdbCollections,
+            EnableWikidataCollections: enableWikidataCollections,
+            CollectionIndexPath: collectionIndexPath,
+            WikidataDebug: wikidataDebug,
+            WikidataDebugMovieLimit: wikidataDebugMovieLimit,
             TagTitlePairs: [],
             Tags: []
           };
@@ -741,8 +837,21 @@
                 }
               });
             }
+          }
+          const wikidataCheckbox = document.querySelector("#enable-wikidata-collections");
+          if (wikidataCheckbox) {
+            wikidataCheckbox.style.cursor = "pointer";
+            const wikidataLabel = document.querySelector('label[for="enable-wikidata-collections"]');
+            if (wikidataLabel) {
+              wikidataLabel.style.cursor = "pointer";
+              wikidataLabel.addEventListener('click', function(e) {
+                if (e.target !== wikidataCheckbox) {
+                  wikidataCheckbox.checked = !wikidataCheckbox.checked;
+                }
+              });
             }
-          }, 100);
+          }
+        }, 100);
         
         document.querySelector("#saveConfiguration").addEventListener("click", saveConfig);
         document.querySelector("#add-title-match-button").addEventListener("click", function() {

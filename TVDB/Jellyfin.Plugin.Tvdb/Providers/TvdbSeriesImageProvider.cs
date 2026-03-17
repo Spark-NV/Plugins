@@ -21,12 +21,21 @@ using Tvdb.Sdk;
 
 namespace Jellyfin.Plugin.Tvdb.Providers;
 
+/// <summary>
+/// Tvdb series image provider.
+/// </summary>
 public class TvdbSeriesImageProvider : IRemoteImageProvider
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<TvdbSeriesImageProvider> _logger;
     private readonly TvdbClientManager _tvdbClientManager;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TvdbSeriesImageProvider"/> class.
+    /// </summary>
+    /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
+    /// <param name="logger">Instance of the <see cref="ILogger{TvdbSeriesImageProvider}"/> interface.</param>
+    /// <param name="tvdbClientManager">Instance of <see cref="TvdbClientManager"/>.</param>
     public TvdbSeriesImageProvider(
         IHttpClientFactory httpClientFactory,
         ILogger<TvdbSeriesImageProvider> logger,
@@ -37,13 +46,16 @@ public class TvdbSeriesImageProvider : IRemoteImageProvider
         _tvdbClientManager = tvdbClientManager;
     }
 
+    /// <inheritdoc />
     public string Name => TvdbPlugin.ProviderName;
 
+    /// <inheritdoc />
     public bool Supports(BaseItem item)
     {
         return item is Series;
     }
 
+    /// <inheritdoc />
     public IEnumerable<ImageType> GetSupportedImages(BaseItem item)
     {
         yield return ImageType.Primary;
@@ -53,6 +65,7 @@ public class TvdbSeriesImageProvider : IRemoteImageProvider
         yield return ImageType.Art;
     }
 
+    /// <inheritdoc />
     public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
     {
         if (!item.IsSupported())
@@ -83,6 +96,7 @@ public class TvdbSeriesImageProvider : IRemoteImageProvider
             var imageType = artworkType.GetImageType();
             var artworkLanguage = artwork.Language is null ? null : languageLookup.GetValueOrDefault(artwork.Language);
 
+            // only add if valid RemoteImageInfo
             remoteImages.AddIfNotNull(artwork.CreateImageInfo(Name, imageType, artworkLanguage));
         }
 
@@ -104,6 +118,7 @@ public class TvdbSeriesImageProvider : IRemoteImageProvider
         }
     }
 
+    /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
     {
         return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(new Uri(url), cancellationToken);

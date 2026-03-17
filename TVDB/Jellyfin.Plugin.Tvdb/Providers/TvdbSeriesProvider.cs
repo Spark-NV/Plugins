@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -9,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Extensions;
+using Jellyfin.Plugin.Tvdb.Services;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -21,25 +23,47 @@ using Tvdb.Sdk;
 
 namespace Jellyfin.Plugin.Tvdb.Providers
 {
+    /// <summary>
+    /// Tvdb series provider.
+    /// </summary>
     public class TvdbSeriesProvider : IRemoteMetadataProvider<Series, SeriesInfo>
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<TvdbSeriesProvider> _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly TvdbClientManager _tvdbClientManager;
+        private readonly RuntimeTracker? _runtimeTracker;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TvdbSeriesProvider"/> class.
+        /// </summary>
+        /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
+        /// <param name="logger">Instance of the <see cref="ILogger{TvdbSeriesProvider}"/> interface.</param>
+        /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+        /// <param name="tvdbClientManager">Instance of <see cref="TvdbClientManager"/>.</param>
         public TvdbSeriesProvider(IHttpClientFactory httpClientFactory, ILogger<TvdbSeriesProvider> logger, ILibraryManager libraryManager, TvdbClientManager tvdbClientManager)
         {
             _httpClientFactory = httpClientFactory;
             _logger = logger;
             _libraryManager = libraryManager;
             _tvdbClientManager = tvdbClientManager;
+
+            // Initialize RuntimeTracker if plugin directory is available
+            var pluginPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            if (pluginPath != null)
+            {
+                // Create a logger adapter for RuntimeTracker using the same logger factory
+                // Since we can't access ILoggerFactory directly, we'll pass null and RuntimeTracker will handle it
+                _runtimeTracker = new RuntimeTracker(pluginPath, null);
+            }
         }
 
+        /// <inheritdoc />
         public string Name => TvdbPlugin.ProviderName;
 
         private static bool IncludeOriginalCountryInTags => TvdbPlugin.Instance?.Configuration.IncludeOriginalCountryInTags ?? false;
 
+        /// <inheritdoc />
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(SeriesInfo searchInfo, CancellationToken cancellationToken)
         {
             if (searchInfo.IsSupported())
@@ -50,6 +74,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return await FindSeries(searchInfo.Name, searchInfo.Year, searchInfo.MetadataLanguage, cancellationToken).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<MetadataResult<Series>> GetMetadata(SeriesInfo info, CancellationToken cancellationToken)
         {
             var result = new MetadataResult<Series>
@@ -77,6 +102,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return result;
         }
 
+        /// <inheritdoc />
         public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
         {
             return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(new Uri(url), cancellationToken);
@@ -146,6 +172,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
 
             if (DateTime.TryParse(series.FirstAired, out var date))
             {
+                // Dates from tvdb are either EST or capital of primary airing country.
                 remoteResult.PremiereDate = date;
                 remoteResult.ProductionYear = date.Year;
             }
@@ -267,6 +294,14 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return resultData[0].Series.Id?.ToString(CultureInfo.InvariantCulture);
         }
 
+        /// <summary>
+        /// Finds the series.
+        /// </summary>
+        /// <param name="name">The name.</param>
+        /// <param name="year">The year.</param>
+        /// <param name="language">The language.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>Task{System.String}.</returns>
         private async Task<IEnumerable<RemoteSearchResult>> FindSeries(string name, int? year, string language, CancellationToken cancellationToken)
         {
             _logger.LogDebug("TvdbSearch: Finding id for item: {Name} ({Year})", name, year);
@@ -276,6 +311,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             {
                 if (year.HasValue && i.ProductionYear.HasValue)
                 {
+                    // Allow one year tolerance
                     return Math.Abs(year.Value - i.ProductionYear.Value) <= 1;
                 }
 
@@ -344,6 +380,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
 
                     var tmdbId = seriesResult.RemoteIds?.FirstOrDefault(x => string.Equals(x.SourceName, "TheMovieDB.com", StringComparison.OrdinalIgnoreCase))?.Id.ToString();
 
+                    // Sometimes, tvdb will return tmdbid as {tmdbid}-{title} like in the tmdb url. Grab the tmdbid only.
                     var tmdbIdLeft = StringExtensions.LeftPart(tmdbId, '-').ToString();
                     remoteSearchResult.SetProviderIdIfHasValue(MetadataProvider.Tmdb, tmdbIdLeft);
                 }
@@ -415,12 +452,15 @@ namespace Jellyfin.Plugin.Tvdb.Providers
         {
             Series series = result.Item;
             series.SetTvdbId(tvdbSeries.Id);
+            // Tvdb uses 3 letter code for language (prob ISO 639-2)
+            // Reverts to OriginalName if no translation is found
             series.Name = tvdbSeries.Translations.GetTranslatedNamedOrDefault(info.MetadataLanguage) ?? TvdbUtils.ReturnOriginalLanguageOrDefault(tvdbSeries.Name);
             series.Overview = tvdbSeries.Translations.GetTranslatedOverviewOrDefault(info.MetadataLanguage) ?? TvdbUtils.ReturnOriginalLanguageOrDefault(tvdbSeries.Overview);
             series.OriginalTitle = tvdbSeries.Name;
             result.ResultLanguage = info.MetadataLanguage;
             series.AirDays = TvdbUtils.GetAirDays(tvdbSeries.AirsDays).ToArray();
             series.AirTime = tvdbSeries.AirsTime;
+            // Attempts to default to USA if not found
             series.OfficialRating = tvdbSeries.ContentRatings?.FirstOrDefault(x => string.Equals(x.Country, TvdbCultureInfo.GetCountryInfo(info.MetadataCountryCode)?.ThreeLetterISORegionName, StringComparison.OrdinalIgnoreCase))?.Name ?? tvdbSeries.ContentRatings?.FirstOrDefault(x => string.Equals(x.Country, "usa", StringComparison.OrdinalIgnoreCase))?.Name;
 
             series.SetProviderIdIfHasValue(TvdbPlugin.SlugProviderId, tvdbSeries.Slug);
@@ -453,6 +493,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             series.SetProviderIdIfHasValue(MetadataProvider.Zap2It, zap2ItId);
 
             var tmdbId = tvdbSeries.RemoteIds?.FirstOrDefault(x => string.Equals(x.SourceName, "TheMovieDB.com", StringComparison.OrdinalIgnoreCase))?.Id.ToString();
+            // Sometimes, tvdb will return tmdbid as {tmdbid}-{title} like in the tmdb url. Grab the tmdbid only.
             var tmdbIdLeft = StringExtensions.LeftPart(tmdbId, '-').ToString();
             series.SetProviderIdIfHasValue(MetadataProvider.Tmdb, tmdbIdLeft);
 
@@ -463,13 +504,21 @@ namespace Jellyfin.Plugin.Tvdb.Providers
 
             if (DateTime.TryParse(tvdbSeries.FirstAired, out var date))
             {
+                // dates from tvdb are UTC but without offset or Z
                 series.PremiereDate = date;
                 series.ProductionYear = date.Year;
             }
 
             if (tvdbSeries.AverageRuntime is not null)
             {
-                series.RunTimeTicks = TimeSpan.FromMinutes(tvdbSeries.AverageRuntime.Value).Ticks;
+                var averageRuntime = tvdbSeries.AverageRuntime.Value;
+                series.RunTimeTicks = TimeSpan.FromMinutes(averageRuntime).Ticks;
+
+                // Save AverageRuntime to RuntimeTracker for use in stub generation
+                if (tvdbSeries.Id.HasValue)
+                {
+                    _runtimeTracker?.SetSeriesRuntime(tvdbSeries.Id.Value, averageRuntime);
+                }
             }
 
             foreach (var genre in tvdbSeries.Genres)

@@ -19,12 +19,21 @@ using Tvdb.Sdk;
 
 namespace Jellyfin.Plugin.Tvdb.Providers
 {
+    /// <summary>
+    /// TvdbEpisodeProvider.
+    /// </summary>
     public class TvdbEpisodeProvider : IRemoteMetadataProvider<Episode, EpisodeInfo>
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<TvdbEpisodeProvider> _logger;
         private readonly TvdbClientManager _tvdbClientManager;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TvdbEpisodeProvider"/> class.
+        /// </summary>
+        /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
+        /// <param name="logger">Instance of the <see cref="ILogger{TvdbEpisodeProvider}"/> interface.</param>
+        /// <param name="tvdbClientManager">Instance of <see cref="TvdbClientManager"/>.</param>
         public TvdbEpisodeProvider(IHttpClientFactory httpClientFactory, ILogger<TvdbEpisodeProvider> logger, TvdbClientManager tvdbClientManager)
         {
             _httpClientFactory = httpClientFactory;
@@ -32,12 +41,15 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             _tvdbClientManager = tvdbClientManager;
         }
 
+        /// <inheritdoc />
         public string Name => TvdbPlugin.ProviderName;
 
+        /// <inheritdoc />
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(EpisodeInfo searchInfo, CancellationToken cancellationToken)
         {
             var list = new List<RemoteSearchResult>();
 
+            // Either an episode number or date must be provided; and the dictionary of provider ids must be valid
             if ((searchInfo.IndexNumber == null && searchInfo.PremiereDate == null)
                 || !searchInfo.SeriesProviderIds.IsSupported())
             {
@@ -68,6 +80,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return list;
         }
 
+        /// <inheritdoc />
         public async Task<MetadataResult<Episode>> GetMetadata(EpisodeInfo info, CancellationToken cancellationToken)
         {
             if ((info.IndexNumber == null && info.PremiereDate == null)
@@ -80,6 +93,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
                 };
             }
 
+            // Check for multiple episodes per file, if not run one query.
             if (info.IndexNumberEnd.HasValue)
             {
                 _logger.LogDebug("Multiple episodes found in {Path}", info.Path);
@@ -102,6 +116,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             {
                 var tempEpisodeInfo = info;
                 info.IndexNumber = episode;
+                // First step in the loop, try use the tvdbid field. Else, ignore the field
                 if (episode == startIndex)
                 {
                     results.Add(await GetEpisode(tempEpisodeInfo, cancellationToken).ConfigureAwait(false));
@@ -119,6 +134,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
 
         private MetadataResult<Episode> CombineResults(List<MetadataResult<Episode>> results)
         {
+            // Use first result as baseline
             var result = results[0];
 
             var name = new StringBuilder(result.Item.Name);
@@ -199,6 +215,8 @@ namespace Jellyfin.Plugin.Tvdb.Providers
                     IndexNumber = id.IndexNumber,
                     ParentIndexNumber = id.ParentIndexNumber,
                     IndexNumberEnd = id.IndexNumberEnd,
+                    // Tvdb uses 3 letter code for language (prob ISO 639-2)
+                    // Reverts to OriginalName if no translation is found
                     Name = episode.Translations.GetTranslatedNamedOrDefault(id.MetadataLanguage) ?? TvdbUtils.ReturnOriginalLanguageOrDefault(episode.Name),
                     Overview = episode.Translations.GetTranslatedOverviewOrDefault(id.MetadataLanguage) ?? TvdbUtils.ReturnOriginalLanguageOrDefault(episode.Overview),
                     OriginalTitle = episode.Name,
@@ -211,6 +229,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             var imdbID = episode.RemoteIds?.FirstOrDefault(x => string.Equals(x.SourceName, "IMDB", StringComparison.OrdinalIgnoreCase))?.Id;
             item.SetProviderIdIfHasValue(MetadataProvider.Imdb, imdbID);
 
+            // Below metadata info only applicable for Aired Order
             if (string.IsNullOrEmpty(id.SeriesDisplayOrder))
             {
                 item.AirsBeforeEpisodeNumber = episode.AirsBeforeEpisode;
@@ -218,6 +237,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
                 item.AirsBeforeSeasonNumber = episode.AirsBeforeSeason;
             }
 
+            // Missing episodes loses the episode number when refreshed.
             if (id.IsMissingEpisode)
             {
                 id.SeriesProviderIds.TryGetValue(MetadataProvider.Tvdb.ToString(), out var seriesTvdbIdString);
@@ -230,6 +250,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
                         displayOrder = "official";
                     }
 
+                    // EpisodeExtendedRecord does not provide all the episode numbers for various display orders. So have to get all episodes for the series and search for the episode.
                     var allEpisodes = await _tvdbClientManager.GetSeriesEpisodesAsync(seriesTvdbId, item.PreferredMetadataLanguage, displayOrder, cancellationToken).ConfigureAwait(false);
                     var info = allEpisodes.Episodes.FirstOrDefault(x => x.Id == episode.Id);
 
@@ -243,6 +264,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
 
             if (DateTime.TryParse(episode.Aired, out var date))
             {
+                // dates from tvdb are UTC but without offset or Z
                 item.PremiereDate = date;
                 item.ProductionYear = date.Year;
             }
@@ -254,6 +276,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
                     var currentActor = episode.Characters[i];
                     if (string.IsNullOrEmpty(currentActor.PersonName))
                     {
+                        // Skip people with no person name
                         continue;
                     }
 
@@ -288,6 +311,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return result;
         }
 
+        /// <inheritdoc />
         public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
         {
             return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(new Uri(url), cancellationToken);

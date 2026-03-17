@@ -19,6 +19,9 @@ using Tvdb.Sdk;
 
 namespace Jellyfin.Plugin.Tvdb.Providers
 {
+    /// <summary>
+    /// The Tvdb Season Provider.
+    /// </summary>
     public class TvdbSeasonProvider : IRemoteMetadataProvider<Season, SeasonInfo>
     {
         private readonly IHttpClientFactory _httpClientFactory;
@@ -26,6 +29,13 @@ namespace Jellyfin.Plugin.Tvdb.Providers
         private readonly ILibraryManager _libraryManager;
         private readonly TvdbClientManager _tvdbClientManager;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TvdbSeasonProvider"/> class.
+        /// </summary>
+        /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
+        /// <param name="logger">Instance of the <see cref="ILogger{TvdbSeasonProvider}"/> interface.</param>
+        /// <param name="libraryManager">Instance of <see cref="ILibraryManager"/>.</param>
+        /// <param name="tvdbClientManager">Instance of <see cref="TvdbClientManager"/>.</param>
         public TvdbSeasonProvider(IHttpClientFactory httpClientFactory, ILogger<TvdbSeasonProvider> logger, ILibraryManager libraryManager, TvdbClientManager tvdbClientManager)
         {
             _httpClientFactory = httpClientFactory;
@@ -34,10 +44,12 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             _libraryManager = libraryManager;
         }
 
+        /// <inheritdoc/>
         public string Name => TvdbPlugin.ProviderName;
 
         private static bool ImportSeasonName => TvdbPlugin.Instance?.Configuration.ImportSeasonName ?? false;
 
+        /// <inheritdoc/>
         public async Task<MetadataResult<Season>> GetMetadata(SeasonInfo info, CancellationToken cancellationToken)
         {
             if (info.IndexNumber == null || !info.SeriesProviderIds.IsSupported())
@@ -52,6 +64,8 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             int? seasonId = info.GetTvdbId();
             string displayOrder = info.SeriesDisplayOrder;
 
+            // If the seasonId is 0, it means the season is not yet identified and we need to find it
+            // If IsAutomated is true, it means that the order has changed and we need to find the new season id
             if (seasonId == 0 || info.IsAutomated)
             {
                 if (string.IsNullOrWhiteSpace(displayOrder))
@@ -90,6 +104,8 @@ namespace Jellyfin.Plugin.Tvdb.Providers
                 Item = new Season
                 {
                     IndexNumber = id.IndexNumber,
+                    // Tvdb uses 3 letter code for language (prob ISO 639-2)
+                    // Reverts to OriginalName if no translation is found
                     Overview = season.Translations.GetTranslatedOverviewOrDefault(id.MetadataLanguage),
                 }
             };
@@ -106,11 +122,13 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return result;
         }
 
+        /// <inheritdoc/>
         public Task<IEnumerable<RemoteSearchResult>> GetSearchResults(SeasonInfo searchInfo, CancellationToken cancellationToken)
         {
             return Task.FromResult(Enumerable.Empty<RemoteSearchResult>());
         }
 
+        /// <inheritdoc/>
         public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
         {
             return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(new Uri(url), cancellationToken);

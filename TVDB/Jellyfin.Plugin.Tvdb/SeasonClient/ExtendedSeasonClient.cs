@@ -6,15 +6,24 @@ using Tvdb.Sdk;
 
 namespace Jellyfin.Plugin.Tvdb.SeasonClient
 {
+    /// <summary>
+    /// Extended season client.
+    /// </summary>
     public sealed partial class ExtendedSeasonClient : SeasonsClient, IExtendedSeasonClient
     {
         private System.Net.Http.HttpClient _httpClient;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ExtendedSeasonClient"/> class.
+        /// </summary>
+        /// <param name="configuration">Instance of <see cref="SdkClientSettings"/>.</param>
+        /// <param name="httpClient">Instance of <see cref="System.Net.Http.HttpClient"/>.</param>
         public ExtendedSeasonClient(SdkClientSettings configuration, System.Net.Http.HttpClient httpClient) : base(configuration, httpClient)
         {
             _httpClient = httpClient;
         }
 
+        /// <inheritdoc/>
         public async System.Threading.Tasks.Task<Response99> GetSeasonExtendedWithTranslationsAsync(double id, System.Threading.CancellationToken cancellationToken = default)
         {
             var client_ = _httpClient;
@@ -28,6 +37,7 @@ namespace Jellyfin.Plugin.Tvdb.SeasonClient
 
                     var urlBuilder_ = new System.Text.StringBuilder();
 
+                    // Operation Path: "seasons/{id}/extended"
                     urlBuilder_.Append("seasons/");
                     urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(id, System.Globalization.CultureInfo.InvariantCulture)));
                     urlBuilder_.Append("/extended?meta=translations");

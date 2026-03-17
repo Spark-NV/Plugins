@@ -21,6 +21,9 @@ using Type = Tvdb.Sdk.Type;
 
 namespace Jellyfin.Plugin.Tvdb.ScheduledTasks
 {
+    /// <summary>
+    /// Task to poll TheTVDB for updates.
+    /// </summary>
     public class UpdateTask : IScheduledTask
     {
         private readonly ILibraryManager _libraryManager;
@@ -29,6 +32,14 @@ namespace Jellyfin.Plugin.Tvdb.ScheduledTasks
         private readonly ILogger<UpdateTask> _logger;
         private readonly TvdbClientManager _tvdbClientManager;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UpdateTask"/> class.
+        /// </summary>
+        /// <param name="tvdbClientManager">TheTvdb Client Manager.</param>
+        /// <param name="libraryManager">Library Manager.</param>
+        /// <param name="providerManager">Provider Manager.</param>
+        /// <param name="fileSystem">File System.</param>
+        /// <param name="logger">Logger.</param>
         public UpdateTask(TvdbClientManager tvdbClientManager, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILogger<UpdateTask> logger)
         {
             _libraryManager = libraryManager;
@@ -38,12 +49,16 @@ namespace Jellyfin.Plugin.Tvdb.ScheduledTasks
             _tvdbClientManager = tvdbClientManager;
         }
 
+        /// <inheritdoc/>
         public string Name => "Check for metadata updates.";
 
+        /// <inheritdoc/>
         public string Key => "CheckForMetadataUpdatesTask";
 
+        /// <inheritdoc/>
         public string Description => "Checks TheTvdb's API Update endpoint for updates periodically and updates metadata accordingly.";
 
+        /// <inheritdoc/>
         public string Category => "TheTVDB";
 
         private static int MetadataUpdateInHours => TvdbPlugin.Instance?.Configuration.MetadataUpdateInHours * -1 ?? -1;
@@ -58,6 +73,7 @@ namespace Jellyfin.Plugin.Tvdb.ScheduledTasks
 
         private static bool UpdatePersonScheduledTask => TvdbPlugin.Instance?.Configuration.UpdatePersonScheduledTask ?? false;
 
+        /// <inheritdoc/>
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             progress.Report(0);
@@ -87,11 +103,16 @@ namespace Jellyfin.Plugin.Tvdb.ScheduledTasks
             progress.Report(100);
         }
 
+        /// <inheritdoc/>
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
             return Enumerable.Empty<TaskTriggerInfo>();
         }
 
+        /// <summary>
+        /// Gets all items that have been updated.
+        /// </summary>
+        /// <returns>List of items that have been updated.</returns>
         private async Task<HashSet<BaseItem>> GetItemsUpdated(CancellationToken cancellationToken)
         {
             double fromTime = DateTimeOffset.UtcNow.AddHours(MetadataUpdateInHours).ToUnixTimeSeconds();

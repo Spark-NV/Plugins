@@ -16,12 +16,19 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Tvdb.Providers
 {
+    /// <inheritdoc />
     public class TvdbEpisodeImageProvider : IRemoteImageProvider
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<TvdbEpisodeImageProvider> _logger;
         private readonly TvdbClientManager _tvdbClientManager;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TvdbEpisodeImageProvider"/> class.
+        /// </summary>
+        /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
+        /// <param name="logger">Instance of the <see cref="ILogger{TvdbEpisodeImageProvider}"/> interface.</param>
+        /// <param name="tvdbClientManager">Instance of <see cref="TvdbClientManager"/>.</param>
         public TvdbEpisodeImageProvider(IHttpClientFactory httpClientFactory, ILogger<TvdbEpisodeImageProvider> logger, TvdbClientManager tvdbClientManager)
         {
             _httpClientFactory = httpClientFactory;
@@ -29,18 +36,22 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             _tvdbClientManager = tvdbClientManager;
         }
 
+        /// <inheritdoc />
         public string Name => TvdbPlugin.ProviderName;
 
+        /// <inheritdoc />
         public bool Supports(BaseItem item)
         {
             return item is Episode;
         }
 
+        /// <inheritdoc />
         public IEnumerable<ImageType> GetSupportedImages(BaseItem item)
         {
             yield return ImageType.Primary;
         }
 
+        /// <inheritdoc />
         public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
             var episode = (Episode)item;
@@ -49,6 +60,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             var language = item.GetPreferredMetadataLanguage();
             if (series.IsSupported())
             {
+                // Process images
                 try
                 {
                     string? episodeTvdbId = null;
@@ -94,6 +106,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return imageResult;
         }
 
+        /// <inheritdoc />
         public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
         {
             return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(new Uri(url), cancellationToken);

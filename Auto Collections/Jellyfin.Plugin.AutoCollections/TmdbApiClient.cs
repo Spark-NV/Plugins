@@ -9,30 +9,56 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.AutoCollections
 {
+    /// <summary>
+    /// Thrown when both TMDB Read Access Token and API Key (v3) returned 401 Unauthorized.
+    /// </summary>
+    public class TmdbBothCredentialsUnauthorizedException : Exception
+    {
+        public TmdbBothCredentialsUnauthorizedException(string message) : base(message) { }
+    }
+
     public class TmdbApiClient : IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger _logger;
-        private readonly string _accessToken;
+        private readonly string? _readAccessToken;
+        private readonly string? _apiKey;
         private const string BaseUrl = "https://api.themoviedb.org/3";
-        
+
+        /// <summary>True = use Bearer (Read Access Token); false = use api_key query param.</summary>
+        private bool _useReadToken;
+        private bool _hasSwitchedDueTo401;
+
         private const int DelayBetweenRequestsMs = 750;
         private DateTime _lastRequestTime = DateTime.MinValue;
         private readonly object _delayLock = new object();
 
-        public TmdbApiClient(string accessToken, ILogger logger)
+        /// <summary>
+        /// Create a TMDB API client. When both credentials are set, tries Read Access Token first; on 401, switches to API Key for the rest of the run.
+        /// </summary>
+        public TmdbApiClient(string? readAccessToken, string? apiKey, ILogger logger)
         {
-            _accessToken = accessToken;
+            _readAccessToken = string.IsNullOrWhiteSpace(readAccessToken) ? null : readAccessToken.Trim();
+            _apiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
             _logger = logger;
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
-            
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            _logger.LogInformation("[TMDB API] Using v4 access token authentication (Bearer token)");
-            _logger.LogInformation("[TMDB API] Rate limiting: {DelayMs}ms delay between requests (ensures <40 requests per 10 seconds)", 
+
+            // When both are set, prefer Read Access Token first; on 401 we switch to API Key for the run.
+            _useReadToken = !string.IsNullOrEmpty(_readAccessToken);
+            _hasSwitchedDueTo401 = false;
+
+            if (!string.IsNullOrEmpty(_readAccessToken) && !string.IsNullOrEmpty(_apiKey))
+                _logger.LogInformation("[TMDB API] Both credentials set; using Read Access Token first, will switch to API Key on 401 if needed.");
+            else if (!string.IsNullOrEmpty(_readAccessToken))
+                _logger.LogInformation("[TMDB API] Using Read Access Token (Bearer)");
+            else if (!string.IsNullOrEmpty(_apiKey))
+                _logger.LogInformation("[TMDB API] Using API Key (v3)");
+
+            _logger.LogInformation("[TMDB API] Rate limiting: {DelayMs}ms delay between requests (ensures <40 requests per 10 seconds)",
                 DelayBetweenRequestsMs);
         }
-        
+
         private async Task WaitForRateLimitAsync()
         {
             TimeSpan waitTime;
@@ -40,10 +66,10 @@ namespace Jellyfin.Plugin.AutoCollections
             {
                 var timeSinceLastRequest = DateTime.UtcNow - _lastRequestTime;
                 waitTime = TimeSpan.FromMilliseconds(DelayBetweenRequestsMs) - timeSinceLastRequest;
-                
+
                 if (waitTime.TotalMilliseconds > 0)
                 {
-                    _logger.LogDebug("[TMDB API] Waiting {WaitMs}ms before next request to respect rate limits", 
+                    _logger.LogDebug("[TMDB API] Waiting {WaitMs}ms before next request to respect rate limits",
                         (int)waitTime.TotalMilliseconds);
                     _lastRequestTime = DateTime.UtcNow + waitTime;
                 }
@@ -53,68 +79,90 @@ namespace Jellyfin.Plugin.AutoCollections
                     waitTime = TimeSpan.Zero;
                 }
             }
-            
+
             if (waitTime.TotalMilliseconds > 0)
-            {
                 await Task.Delay(waitTime);
+        }
+
+        private string BuildUrl(string pathAndQuery, bool useApiKeyInUrl)
+        {
+            if (!useApiKeyInUrl || string.IsNullOrEmpty(_apiKey))
+                return pathAndQuery;
+            var separator = pathAndQuery.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+            return pathAndQuery + separator + "api_key=" + Uri.EscapeDataString(_apiKey);
+        }
+
+        /// <summary>
+        /// Sends a GET request with current auth. On 401, retries once with the other credential if available; if that also returns 401, throws <see cref="TmdbBothCredentialsUnauthorizedException"/>.
+        /// </summary>
+        private async Task<HttpResponseMessage> SendRequestAsync(string pathAndQuery)
+        {
+            await WaitForRateLimitAsync();
+
+            var url = BuildUrl(pathAndQuery, useApiKeyInUrl: !_useReadToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (_useReadToken && !string.IsNullOrEmpty(_readAccessToken))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _readAccessToken);
+
+            var response = await _httpClient.SendAsync(request);
+            _logger.LogInformation("[TMDB API] Response Status: {StatusCode} {ReasonPhrase}", (int)response.StatusCode, response.ReasonPhrase);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("[TMDB API] 401 Unauthorized with current credential. Response: {ErrorContent}", errorContent);
+
+                bool canSwitch = !_hasSwitchedDueTo401 &&
+                    ((_useReadToken && !string.IsNullOrEmpty(_apiKey)) || (!_useReadToken && !string.IsNullOrEmpty(_readAccessToken)));
+
+                if (canSwitch)
+                {
+                    _hasSwitchedDueTo401 = true;
+                    _useReadToken = !_useReadToken;
+                    _logger.LogInformation("[TMDB API] Switching to {Auth} for remainder of run.", _useReadToken ? "Read Access Token (Bearer)" : "API Key (v3)");
+
+                    var retryUrl = BuildUrl(pathAndQuery, useApiKeyInUrl: !_useReadToken);
+                    using var retryRequest = new HttpRequestMessage(HttpMethod.Get, retryUrl);
+                    if (_useReadToken && !string.IsNullOrEmpty(_readAccessToken))
+                        retryRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _readAccessToken);
+
+                    var retryResponse = await _httpClient.SendAsync(retryRequest);
+                    _logger.LogInformation("[TMDB API] Retry Response Status: {StatusCode} {ReasonPhrase}", (int)retryResponse.StatusCode, retryResponse.ReasonPhrase);
+
+                    if (retryResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        _logger.LogError("[TMDB API] Both credentials returned 401 Unauthorized. Stopping TMDB collection run.");
+                        throw new TmdbBothCredentialsUnauthorizedException("Both TMDB Read Access Token and API Key (v3) are unauthorized. Please check your credentials in the plugin settings.");
+                    }
+                    return retryResponse;
+                }
+
+                _logger.LogError("[TMDB API] Both credentials returned 401 Unauthorized (or only one credential was set). Stopping TMDB collection run.");
+                throw new TmdbBothCredentialsUnauthorizedException("TMDB credential is unauthorized. Please check your Read Access Token or API Key (v3) in the plugin settings.");
             }
+
+            if (response.StatusCode == (System.Net.HttpStatusCode)429)
+            {
+                _logger.LogWarning("[TMDB API] 429 Too Many Requests. Waiting 10 seconds before retrying same request...");
+                await Task.Delay(TimeSpan.FromSeconds(10));
+                return await SendRequestAsync(pathAndQuery);
+            }
+
+            return response;
         }
 
         public async Task<TmdbMovieDetails?> GetMovieDetailsAsync(int movieId, string language = "en-US")
         {
             try
             {
-                await WaitForRateLimitAsync();
-                
-                var url = $"{BaseUrl}/movie/{movieId}?language={language}";
-                
-                _logger.LogInformation("[TMDB API] GET Request URL: {Url}", url);
-                _logger.LogInformation("[TMDB API] Access Token Length: {Length}", _accessToken?.Length ?? 0);
-                _logger.LogInformation("[TMDB API] Fetching movie details for TMDB ID: {MovieId}", movieId);
+                var pathAndQuery = $"{BaseUrl}/movie/{movieId}?language={language}";
+                _logger.LogInformation("[TMDB API] GET Request: movie/{MovieId}", movieId);
 
-                var response = await _httpClient.GetAsync(url);
-                _logger.LogInformation("[TMDB API] Response Status: {StatusCode} {ReasonPhrase}", (int)response.StatusCode, response.ReasonPhrase);
-                
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogError("[TMDB API] Error Response Body: {ErrorContent}", errorContent);
-                    
-                    if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                    {
-                        _logger.LogError("[TMDB API] 401 Unauthorized - This usually means the access token is invalid or missing. Please check your TMDB access token in the plugin settings.");
-                    }
-                    else if (response.StatusCode == (System.Net.HttpStatusCode)429)
-                    {
-                        _logger.LogError("[TMDB API] 429 Too Many Requests - Rate limit exceeded. This shouldn't happen with our rate limiter, but waiting 10 seconds and retrying...");
-                        await Task.Delay(TimeSpan.FromSeconds(10));
-                    }
-                }
-                
+                var response = await SendRequestAsync(pathAndQuery);
                 response.EnsureSuccessStatusCode();
 
                 var json = await response.Content.ReadAsStringAsync();
                 _logger.LogInformation("[TMDB API] Response Body Length: {Length} characters", json.Length);
-                
-                if (json.Contains("belongs_to_collection", StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogInformation("[TMDB API] Found 'belongs_to_collection' field in JSON response");
-                    var collectionStart = json.IndexOf("\"belongs_to_collection\"", StringComparison.OrdinalIgnoreCase);
-                    if (collectionStart >= 0)
-                    {
-                        var collectionEnd = json.IndexOf("}", collectionStart + 50);
-                        if (collectionEnd > collectionStart)
-                        {
-                            var collectionJson = json.Substring(collectionStart, Math.Min(collectionEnd - collectionStart + 1, 200));
-                            _logger.LogInformation("[TMDB API] Collection JSON snippet: {Snippet}", collectionJson);
-                        }
-                    }
-                }
-                else
-                {
-                    _logger.LogInformation("[TMDB API] 'belongs_to_collection' field NOT found in JSON response");
-                }
-                
                 _logger.LogDebug("[TMDB API] Response Body: {Json}", json);
 
                 var movieDetails = JsonSerializer.Deserialize<TmdbMovieDetails>(json, new JsonSerializerOptions
@@ -126,31 +174,39 @@ namespace Jellyfin.Plugin.AutoCollections
                 {
                     _logger.LogInformation("[TMDB API] Successfully parsed movie: {Title} (ID: {Id})", movieDetails.Title, movieDetails.Id);
                     if (movieDetails.BelongsToCollection != null)
-                    {
-                        _logger.LogInformation("[TMDB API] Movie belongs to collection: {CollectionName} (ID: {CollectionId})", 
+                        _logger.LogInformation("[TMDB API] Movie belongs to collection: {CollectionName} (ID: {CollectionId})",
                             movieDetails.BelongsToCollection.Name, movieDetails.BelongsToCollection.Id);
-                    }
                     else
-                    {
                         _logger.LogInformation("[TMDB API] Movie does not belong to any collection (BelongsToCollection is null)");
-                    }
                 }
                 else
-                {
                     _logger.LogWarning("[TMDB API] Failed to deserialize movie details from response");
-                }
 
                 return movieDetails;
+            }
+            catch (TmdbBothCredentialsUnauthorizedException)
+            {
+                throw;
             }
             catch (HttpRequestException ex)
             {
                 _logger.LogError(ex, "[TMDB API] HTTP error fetching movie details for TMDB ID {MovieId}: {Message}", movieId, ex.Message);
-                return null;
+                throw;
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogError(ex, "[TMDB API] Request timed out for TMDB ID {MovieId}: {Message}", movieId, ex.Message);
+                throw;
+            }
+            catch (OperationCanceledException ex)
+            {
+                _logger.LogError(ex, "[TMDB API] Request cancelled for TMDB ID {MovieId}: {Message}", movieId, ex.Message);
+                throw;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[TMDB API] Unexpected error fetching movie details for TMDB ID {MovieId}: {Message}", movieId, ex.Message);
-                return null;
+                throw;
             }
         }
 
@@ -158,33 +214,10 @@ namespace Jellyfin.Plugin.AutoCollections
         {
             try
             {
-                await WaitForRateLimitAsync();
-                
-                var url = $"{BaseUrl}/collection/{collectionId}?language={language}";
-                
-                _logger.LogInformation("[TMDB API] GET Request URL: {Url}", url);
-                _logger.LogInformation("[TMDB API] Access Token Length: {Length}", _accessToken?.Length ?? 0);
-                _logger.LogInformation("[TMDB API] Fetching collection details for TMDB Collection ID: {CollectionId}", collectionId);
+                var pathAndQuery = $"{BaseUrl}/collection/{collectionId}?language={language}";
+                _logger.LogInformation("[TMDB API] GET Request: collection/{CollectionId}", collectionId);
 
-                var response = await _httpClient.GetAsync(url);
-                _logger.LogInformation("[TMDB API] Response Status: {StatusCode} {ReasonPhrase}", (int)response.StatusCode, response.ReasonPhrase);
-                
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogError("[TMDB API] Error Response Body: {ErrorContent}", errorContent);
-                    
-                    if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                    {
-                        _logger.LogError("[TMDB API] 401 Unauthorized - This usually means the access token is invalid or missing. Please check your TMDB access token in the plugin settings.");
-                    }
-                    else if (response.StatusCode == (System.Net.HttpStatusCode)429)
-                    {
-                        _logger.LogError("[TMDB API] 429 Too Many Requests - Rate limit exceeded. This shouldn't happen with our rate limiter, but waiting 10 seconds and retrying...");
-                        await Task.Delay(TimeSpan.FromSeconds(10));
-                    }
-                }
-                
+                var response = await SendRequestAsync(pathAndQuery);
                 response.EnsureSuccessStatusCode();
 
                 var json = await response.Content.ReadAsStringAsync();
@@ -200,25 +233,18 @@ namespace Jellyfin.Plugin.AutoCollections
                 {
                     _logger.LogInformation("[TMDB API] Successfully parsed collection: {Name} (ID: {Id})", collectionDetails.Name, collectionDetails.Id);
                     if (collectionDetails.Parts != null)
-                    {
                         _logger.LogInformation("[TMDB API] Collection contains {Count} movies", collectionDetails.Parts.Count);
-                        foreach (var part in collectionDetails.Parts)
-                        {
-                            _logger.LogInformation("[TMDB API]   - {Title} (ID: {Id}, Release: {ReleaseDate})", 
-                                part.Title, part.Id, part.ReleaseDate ?? "Unknown");
-                        }
-                    }
                     else
-                    {
                         _logger.LogWarning("[TMDB API] Collection has no parts/movies");
-                    }
                 }
                 else
-                {
                     _logger.LogWarning("[TMDB API] Failed to deserialize collection details from response");
-                }
 
                 return collectionDetails;
+            }
+            catch (TmdbBothCredentialsUnauthorizedException)
+            {
+                throw;
             }
             catch (HttpRequestException ex)
             {

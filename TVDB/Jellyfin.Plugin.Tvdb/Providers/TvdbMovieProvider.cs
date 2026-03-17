@@ -21,6 +21,9 @@ using Tvdb.Sdk;
 
 namespace Jellyfin.Plugin.Tvdb.Providers
 {
+    /// <summary>
+    /// The TVDB movie provider.
+    /// </summary>
     public class TvdbMovieProvider : IRemoteMetadataProvider<Movie, MovieInfo>
     {
         private readonly IHttpClientFactory _httpClientFactory;
@@ -28,6 +31,13 @@ namespace Jellyfin.Plugin.Tvdb.Providers
         private readonly ILibraryManager _libraryManager;
         private readonly TvdbClientManager _tvdbClientManager;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TvdbMovieProvider"/> class.
+        /// </summary>
+        /// <param name="httpClientFactory">Instance of <see cref="IHttpClientFactory"/>.</param>
+        /// <param name="logger">Instance of <see cref="ILogger{TvdbMovieProvider}"/>.</param>
+        /// <param name="libraryManager">Instance of <see cref="ILibraryManager"/>.</param>
+        /// <param name="tvdbClientManager">Instance of <see cref="TvdbClientManager"/>.</param>
         public TvdbMovieProvider(
             IHttpClientFactory httpClientFactory,
             ILogger<TvdbMovieProvider> logger,
@@ -40,10 +50,12 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             _tvdbClientManager = tvdbClientManager;
         }
 
+        /// <inheritdoc/>
         public string Name => TvdbPlugin.ProviderName;
 
         private static bool IncludeOriginalCountryInTags => TvdbPlugin.Instance?.Configuration.IncludeOriginalCountryInTags ?? false;
 
+        /// <inheritdoc/>
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(MovieInfo searchInfo, CancellationToken cancellationToken)
         {
             if (searchInfo.IsSupported())
@@ -54,6 +66,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return await FindMovie(searchInfo.Name, searchInfo.Year, searchInfo.MetadataLanguage, cancellationToken).ConfigureAwait(false);
         }
 
+        /// <inheritdoc/>
         public async Task<MetadataResult<Movie>> GetMetadata(MovieInfo info, CancellationToken cancellationToken)
         {
             var result = new MetadataResult<Movie>
@@ -143,6 +156,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
 
             if (DateTime.TryParse(movie.First_release.Date, out var date))
             {
+                // Dates from tvdb are either EST or capital of primary airing country.
                 remoteResult.PremiereDate = date;
                 remoteResult.ProductionYear = date.Year;
             }
@@ -186,6 +200,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             {
                 if (year.HasValue && i.ProductionYear.HasValue)
                 {
+                    // Allow one year tolerance
                     return Math.Abs(year.Value - i.ProductionYear.Value) <= 1;
                 }
 
@@ -254,6 +269,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
 
                     var tmdbId = movieResult.RemoteIds?.FirstOrDefault(x => string.Equals(x.SourceName, "TheMovieDB.com", StringComparison.OrdinalIgnoreCase))?.Id.ToString();
 
+                    // Sometimes, tvdb will return tmdbid as {tmdbid}-{title} like in the tmdb url. Grab the tmdbid only.
                     var tmdbIdLeft = StringExtensions.LeftPart(tmdbId, '-').ToString();
                     remoteSearchResult.SetProviderIdIfHasValue(MetadataProvider.Tmdb, tmdbIdLeft);
                 }
@@ -382,10 +398,13 @@ namespace Jellyfin.Plugin.Tvdb.Providers
         {
             Movie movie = result.Item;
             movie.SetTvdbId(tvdbMovie.Id);
+            // Tvdb uses 3 letter code for language (prob ISO 639-2)
+            // Reverts to OriginalName if no translation is found
             movie.Name = tvdbMovie.Translations.GetTranslatedNamedOrDefault(info.MetadataLanguage) ?? TvdbUtils.ReturnOriginalLanguageOrDefault(tvdbMovie.Name);
             movie.Overview = tvdbMovie.Translations.GetTranslatedOverviewOrDefault(info.MetadataLanguage);
             movie.OriginalTitle = tvdbMovie.Name;
             result.ResultLanguage = info.MetadataLanguage;
+            // Attempts to default to USA if not found
             movie.OfficialRating = tvdbMovie.ContentRatings?.FirstOrDefault(x => string.Equals(x.Country, TvdbCultureInfo.GetCountryInfo(info.MetadataCountryCode)?.ThreeLetterISORegionName, StringComparison.OrdinalIgnoreCase))?.Name ?? tvdbMovie.ContentRatings?.FirstOrDefault(x => string.Equals(x.Country, "usa", StringComparison.OrdinalIgnoreCase))?.Name;
 
             var collectionIds = tvdbMovie.Lists.Where(x => x.IsOfficial is true)
@@ -402,11 +421,13 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             movie.SetProviderIdIfHasValue(MetadataProvider.Zap2It, zap2ItId);
 
             var tmdbId = tvdbMovie.RemoteIds?.FirstOrDefault(x => string.Equals(x.SourceName, "TheMovieDB.com", StringComparison.OrdinalIgnoreCase))?.Id.ToString();
+            // Sometimes, tvdb will return tmdbid as {tmdbid}-{title} like in the tmdb url. Grab the tmdbid only.
             var tmdbIdLeft = StringExtensions.LeftPart(tmdbId, '-').ToString();
             movie.SetProviderIdIfHasValue(MetadataProvider.Tmdb, tmdbIdLeft);
 
             if (DateTime.TryParse(tvdbMovie.First_release.Date, out var date))
             {
+                // dates from tvdb are UTC but without offset or Z
                 movie.PremiereDate = date;
                 movie.ProductionYear = date.Year;
             }
@@ -458,6 +479,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             }
         }
 
+        /// <inheritdoc/>
         public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
         {
             return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(new Uri(url), cancellationToken);

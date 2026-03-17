@@ -3,11 +3,14 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
+using System.Text;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Net;
+using System.Net.Http;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -602,16 +605,27 @@ namespace Jellyfin.Plugin.AutoCollections
             _logger.LogInformation("Checking TMDB Collection Configuration");
             _logger.LogInformation("========================================");
             var config = Plugin.Instance!.Configuration;
+            var hasReadToken = !string.IsNullOrWhiteSpace(config.TmdbReadAccessToken);
+            var hasApiKey = !string.IsNullOrWhiteSpace(config.TmdbApiKey);
+            // Legacy: when only TmdbApiKey is set, it was previously used as Read Access Token
+            var effectiveReadToken = hasReadToken ? config.TmdbReadAccessToken : (hasApiKey ? config.TmdbApiKey : null);
+            var effectiveApiKey = hasApiKey ? config.TmdbApiKey : null;
+            var hasAnyCredential = !string.IsNullOrWhiteSpace(effectiveReadToken) || !string.IsNullOrWhiteSpace(effectiveApiKey);
+
             _logger.LogInformation("TMDB Collections Enabled: {Enabled}", config.EnableTmdbCollections);
-            _logger.LogInformation("TMDB API Key Present: {HasKey}", !string.IsNullOrWhiteSpace(config.TmdbApiKey));
-            _logger.LogInformation("TMDB API Key Length: {Length}", config.TmdbApiKey?.Length ?? 0);
-            
-            if (config.EnableTmdbCollections && !string.IsNullOrWhiteSpace(config.TmdbApiKey))
+            _logger.LogInformation("TMDB Read Access Token: {Has}", hasReadToken);
+            _logger.LogInformation("TMDB API Key (v3): {Has}", hasApiKey);
+
+            if (config.EnableTmdbCollections && hasAnyCredential)
             {
                 try
                 {
-                    _logger.LogInformation("TMDB collections are enabled and API key is configured. Starting execution...");
-                    await ExecuteTmdbCollectionsAsync(config.TmdbApiKey);
+                    _logger.LogInformation("TMDB collections are enabled and credentials configured. Starting execution...");
+                    await ExecuteTmdbCollectionsAsync(effectiveReadToken, effectiveApiKey);
+                }
+                catch (TmdbBothCredentialsUnauthorizedException ex)
+                {
+                    _logger.LogError("TMDB collection run stopped: both Read Access Token and API Key (v3) are unauthorized. Please check your credentials in the plugin settings. Message: {Message}", ex.Message);
                 }
                 catch (Exception ex)
                 {
@@ -619,13 +633,31 @@ namespace Jellyfin.Plugin.AutoCollections
                     _logger.LogError(ex, "Stack trace: {StackTrace}", ex.StackTrace);
                 }
             }
-            else if (config.EnableTmdbCollections && string.IsNullOrWhiteSpace(config.TmdbApiKey))
+            else if (config.EnableTmdbCollections && !hasAnyCredential)
             {
-                _logger.LogWarning("TMDB collections are enabled but API key is not configured or is empty");
+                _logger.LogWarning("TMDB collections are enabled but neither Read Access Token nor API Key (v3) is configured");
             }
             else if (!config.EnableTmdbCollections)
             {
                 _logger.LogInformation("TMDB collections are disabled in configuration");
+            }
+
+            if (config.EnableWikidataCollections)
+            {
+                try
+                {
+                    _logger.LogInformation("Wikidata collections are enabled. Starting execution...");
+                    await ExecuteWikidataCollectionsAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing Wikidata collections: {Message}", ex.Message);
+                    _logger.LogError(ex, "Stack trace: {StackTrace}", ex.StackTrace);
+                }
+            }
+            else
+            {
+                _logger.LogInformation("Wikidata collections are disabled in configuration");
             }
 
             _logger.LogInformation("Completed execution of all Auto collections");
@@ -1569,20 +1601,19 @@ namespace Jellyfin.Plugin.AutoCollections
             }
         }
         
-        private async Task ExecuteTmdbCollectionsAsync(string apiKey)
+        private async Task ExecuteTmdbCollectionsAsync(string? readAccessToken, string? apiKey)
         {
             _logger.LogInformation("========================================");
             _logger.LogInformation("Starting TMDB Collection Processing");
             _logger.LogInformation("========================================");
-            _logger.LogInformation("TMDB API Key configured: {HasKey}", !string.IsNullOrWhiteSpace(apiKey));
-            _logger.LogInformation("TMDB API Key: {ApiKey}", apiKey);
-            _logger.LogInformation("TMDB API Key Length: {Length}", apiKey?.Length ?? 0);
-            
+            _logger.LogInformation("TMDB Read Access Token: {Has}", !string.IsNullOrWhiteSpace(readAccessToken));
+            _logger.LogInformation("TMDB API Key (v3): {Has}", !string.IsNullOrWhiteSpace(apiKey));
+
             var cachePath = Path.Combine(_pluginDirectory, "tmdb_movie_collection_cache.json");
             var movieCache = LoadTmdbCache(cachePath);
             _logger.LogInformation("[TMDB] Loaded cache with {Count} previously checked movies", movieCache.Count);
-            
-            using var tmdbClient = new TmdbApiClient(apiKey, _logger);
+
+            using var tmdbClient = new TmdbApiClient(readAccessToken, apiKey, _logger);
             
             _logger.LogInformation("[TMDB] Querying library for all movies...");
             var allMovies = _libraryManager.GetItemList(new InternalItemsQuery
@@ -1642,8 +1673,32 @@ namespace Jellyfin.Plugin.AutoCollections
                     
                     apiCalls++;
                     _logger.LogInformation("[TMDB] Movie '{MovieName}' not in cache, fetching from TMDB API (ID: {TmdbId})", movie.Name, tmdbId);
-                    var movieDetails = await tmdbClient.GetMovieDetailsAsync(tmdbId);
-                    
+                    TmdbMovieDetails? movieDetails;
+                    try
+                    {
+                        movieDetails = await tmdbClient.GetMovieDetailsAsync(tmdbId);
+                    }
+                    catch (HttpRequestException ex)
+                    {
+                        _logger.LogWarning(ex, "[TMDB] Request failed for '{MovieName}' (TMDB ID: {TmdbId}) - not caching: {Message}", movie.Name, tmdbId, ex.Message);
+                        continue;
+                    }
+                    catch (TaskCanceledException ex)
+                    {
+                        _logger.LogWarning(ex, "[TMDB] Request timed out for '{MovieName}' (TMDB ID: {TmdbId}) - not caching: {Message}", movie.Name, tmdbId, ex.Message);
+                        continue;
+                    }
+                    catch (OperationCanceledException ex)
+                    {
+                        _logger.LogWarning(ex, "[TMDB] Request cancelled for '{MovieName}' (TMDB ID: {TmdbId}) - not caching: {Message}", movie.Name, tmdbId, ex.Message);
+                        continue;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[TMDB] Error for '{MovieName}' (TMDB ID: {TmdbId}) - not caching: {Message}", movie.Name, tmdbId, ex.Message);
+                        continue;
+                    }
+
                     movieCache[tmdbId] = new TmdbMovieCacheEntry
                     {
                         TmdbId = tmdbId,
@@ -1684,6 +1739,10 @@ namespace Jellyfin.Plugin.AutoCollections
                     
                     collectionMovies[collectionId].Add(movie);
                     _logger.LogInformation("[TMDB] Added movie '{MovieName}' to collection '{CollectionName}'", movie.Name, collectionName);
+                }
+                catch (TmdbBothCredentialsUnauthorizedException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -1770,6 +1829,10 @@ namespace Jellyfin.Plugin.AutoCollections
                         collectionName, allMoviesInCollection.Count);
                     await CreateOrUpdateTmdbCollectionAsync(collectionName, allMoviesInCollection);
                     _logger.LogInformation("[TMDB] Successfully processed collection '{CollectionName}'", collectionName);
+                }
+                catch (TmdbBothCredentialsUnauthorizedException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -1866,6 +1929,472 @@ namespace Jellyfin.Plugin.AutoCollections
             }
             
             _logger.LogInformation("[TMDB Collection] Successfully created/updated collection: '{CollectionName}'", collectionName);
+        }
+
+        private async Task ExecuteWikidataCollectionsAsync()
+        {
+            _logger.LogInformation("========================================");
+            _logger.LogInformation("Starting Wikidata Collection Processing");
+            _logger.LogInformation("========================================");
+
+            var config = Plugin.Instance!.Configuration;
+            var isDebug = config.WikidataDebug;
+            var debugMovieLimit = Math.Clamp(config.WikidataDebugMovieLimit, 1, 1000);
+
+            if (isDebug)
+            {
+                _logger.LogInformation("[Wikidata] DEBUG MODE: No collections will be created. Log file will be written. Movie check limit: {Limit}", debugMovieLimit);
+            }
+
+            var cachePath = Path.Combine(_pluginDirectory, "wikidata_series_cache.json");
+            var wikidataCache = LoadWikidataCache(cachePath);
+            _logger.LogInformation("[Wikidata] Loaded cache with {Count} previously checked movies", wikidataCache.Count);
+
+            var indexPath = ResolveCollectionIndexFilePath(config.CollectionIndexPath);
+            var indexData = LoadCollectionIndex(indexPath);
+
+            _logger.LogInformation("[Wikidata] Querying library for all movies...");
+            var allMovies = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { BaseItemKind.Movie },
+                IsVirtualItem = false,
+                Recursive = true
+            }).OfType<Movie>().ToList();
+
+            _logger.LogInformation("[Wikidata] Found {Count} total movies in library", allMovies.Count);
+
+            var imdbToMediaId = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var movie in allMovies)
+            {
+                if (movie.ProviderIds != null &&
+                    movie.ProviderIds.TryGetValue("Imdb", out var imdbId) &&
+                    !string.IsNullOrWhiteSpace(imdbId))
+                {
+                    var normalized = imdbId.Trim();
+                    if (!normalized.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        normalized = "tt" + normalized;
+                    }
+                    imdbToMediaId[normalized] = movie.Id;
+                }
+            }
+            _logger.LogInformation("[Wikidata] Built IMDb ID map for {Count} movies in library", imdbToMediaId.Count);
+
+            var collectionCandidates = new Dictionary<string, (string CollectionName, HashSet<string> ImdbIds)>(StringComparer.OrdinalIgnoreCase);
+            StringBuilder? debugLog = null;
+            if (isDebug)
+            {
+                debugLog = new StringBuilder();
+                debugLog.AppendLine("========== Wikidata Collections DEBUG LOG ==========");
+                debugLog.AppendLine($"Generated: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+                debugLog.AppendLine($"Movie check limit: {debugMovieLimit}");
+                debugLog.AppendLine();
+                debugLog.AppendLine("========== MOVIES CHECKED ==========");
+            }
+
+            using var wikidataClient = new WikidataApiClient(_logger);
+
+            int moviesProcessed = 0;
+            int moviesChecked = 0;
+            int cacheHits = 0;
+            int apiCalls = 0;
+
+            foreach (var movie in allMovies)
+            {
+                moviesProcessed++;
+                if (movie.ProviderIds == null)
+                {
+                    continue;
+                }
+
+                if (!movie.ProviderIds.TryGetValue("Imdb", out var imdbIdStr) || string.IsNullOrWhiteSpace(imdbIdStr))
+                {
+                    continue;
+                }
+
+                if (isDebug && moviesChecked >= debugMovieLimit)
+                {
+                    break;
+                }
+
+                var normalizedImdbId = imdbIdStr.Trim();
+                if (!normalizedImdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                {
+                    normalizedImdbId = "tt" + normalizedImdbId;
+                }
+
+                // A movie can have multiple P179 entries (e.g. Iron Man: MCU, Iron Man trilogy, Phase One, Infinity Saga)
+                // Cache keyed by IMDb ID (like TMDB) so new movies added to library trigger API calls for fresh data
+                var results = new List<WikidataSeriesResult>();
+
+                if (wikidataCache.TryGetValue(normalizedImdbId, out var cachedEntry) && cachedEntry.SeriesResults != null)
+                {
+                    cacheHits++;
+                    foreach (var series in cachedEntry.SeriesResults)
+                    {
+                        results.Add(new WikidataSeriesResult
+                        {
+                            SeriesQid = series.SeriesQid,
+                            CollectionName = series.CollectionName,
+                            ImdbIds = series.ImdbIds
+                        });
+                    }
+                }
+
+                moviesChecked++;
+
+                if (isDebug && debugLog != null)
+                {
+                    debugLog.AppendLine($"[Movie {moviesChecked}] {movie.Name} (IMDb: {normalizedImdbId})");
+                    if (results.Count == 0)
+                    {
+                        debugLog.AppendLine("  -> No series found");
+                    }
+                    else
+                    {
+                        foreach (var r in results)
+                        {
+                            debugLog.AppendLine($"  -> Series: {r.CollectionName} (QID: {r.SeriesQid}), {r.ImdbIds.Count} members");
+                        }
+                    }
+                }
+
+                if (results.Count == 0)
+                {
+                    apiCalls++;
+                    try
+                    {
+                        var apiResults = await wikidataClient.GetSeriesByImdbIdAsync(normalizedImdbId);
+                        foreach (var r in apiResults)
+                        {
+                            results.Add(r);
+                        }
+                        wikidataCache[normalizedImdbId] = new WikidataMovieCacheEntry
+                        {
+                            ImdbId = normalizedImdbId,
+                            SeriesResults = results.Select(r => new WikidataSeriesCacheEntry
+                            {
+                                SeriesQid = r.SeriesQid,
+                                CollectionName = r.CollectionName,
+                                ImdbIds = r.ImdbIds,
+                                LastChecked = DateTime.UtcNow
+                            }).ToList(),
+                            LastChecked = DateTime.UtcNow
+                        };
+                    }
+                    catch (HttpRequestException ex)
+                    {
+                        _logger.LogWarning(ex, "[Wikidata] Request failed for IMDb {ImdbId} (timeout/network) - not caching: {Message}", normalizedImdbId, ex.Message);
+                    }
+                    catch (TaskCanceledException ex)
+                    {
+                        _logger.LogWarning(ex, "[Wikidata] Request timed out for IMDb {ImdbId} - not caching: {Message}", normalizedImdbId, ex.Message);
+                    }
+                    catch (OperationCanceledException ex)
+                    {
+                        _logger.LogWarning(ex, "[Wikidata] Request cancelled for IMDb {ImdbId} - not caching: {Message}", normalizedImdbId, ex.Message);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[Wikidata] Error for IMDb {ImdbId} - not caching: {Message}", normalizedImdbId, ex.Message);
+                    }
+                }
+
+                foreach (var result in results)
+                {
+                    if (!collectionCandidates.ContainsKey(result.SeriesQid))
+                    {
+                        collectionCandidates[result.SeriesQid] = (result.CollectionName, result.ImdbIds.ToHashSet(StringComparer.OrdinalIgnoreCase));
+                    }
+                    else
+                    {
+                        var (name, ids) = collectionCandidates[result.SeriesQid];
+                        foreach (var id in result.ImdbIds)
+                        {
+                            ids.Add(id);
+                        }
+                    }
+                }
+            }
+
+            _logger.LogInformation("[Wikidata] Processing Summary:");
+            _logger.LogInformation("[Wikidata]   - Movies checked: {Checked}{LimitInfo}", moviesChecked, isDebug ? $" (limit: {debugMovieLimit})" : $" (of {allMovies.Count} in library)");
+            _logger.LogInformation("[Wikidata]   - Cache hits: {CacheHits}", cacheHits);
+            _logger.LogInformation("[Wikidata]   - API calls made: {ApiCalls}", apiCalls);
+            _logger.LogInformation("[Wikidata] Found {Count} unique Wikidata series", collectionCandidates.Count);
+
+            if (isDebug && debugLog != null)
+            {
+                debugLog.AppendLine();
+                debugLog.AppendLine("========== COLLECTION CANDIDATES (what would have been done) ==========");
+            }
+
+            int collectionIndex = 0;
+            foreach (var kvp in collectionCandidates)
+            {
+                collectionIndex++;
+                var seriesQid = kvp.Key;
+                var (collectionName, imdbIds) = kvp.Value;
+
+                try
+                {
+                    _logger.LogInformation("[Wikidata] ========================================");
+                    _logger.LogInformation("[Wikidata] Processing collection {Index}/{Total}: '{CollectionName}' (QID: {SeriesQid})",
+                        collectionIndex, collectionCandidates.Count, collectionName, seriesQid);
+
+                    if (isDebug && debugLog != null)
+                    {
+                        var debugInfo = GetWikidataCollectionDebugInfo(
+                            collectionName,
+                            imdbIds.ToList(),
+                            allMovies,
+                            imdbToMediaId,
+                            indexData);
+                        debugLog.AppendLine();
+                        debugLog.AppendLine($"[Collection {collectionIndex}] {collectionName} (QID: {seriesQid})");
+                        debugLog.AppendLine(debugInfo);
+                    }
+                    else
+                    {
+                        await CreateOrUpdateWikidataCollectionAsync(
+                            collectionName,
+                            imdbIds.ToList(),
+                            allMovies,
+                            imdbToMediaId,
+                            indexData);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[Wikidata] Error processing series {SeriesQid}: {Message}", seriesQid, ex.Message);
+                }
+            }
+
+            if (!isDebug)
+            {
+                SaveWikidataCache(cachePath, wikidataCache);
+                _logger.LogInformation("[Wikidata] Saved cache with {Count} movies", wikidataCache.Count);
+            }
+            else if (debugLog != null)
+            {
+                var pluginDllDir = Path.GetDirectoryName(typeof(AutoCollectionsManager).Assembly.Location);
+                var debugPath = Path.Combine(pluginDllDir ?? _pluginDirectory, $"wikidata_debug_{DateTime.UtcNow:yyyyMMdd_HHmmss}.log");
+                try
+                {
+                    File.WriteAllText(debugPath, debugLog.ToString(), System.Text.Encoding.UTF8);
+                    _logger.LogInformation("[Wikidata] Debug log written to: {Path}", debugPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[Wikidata] Failed to write debug log: {Message}", ex.Message);
+                }
+            }
+
+            _logger.LogInformation("========================================");
+            _logger.LogInformation("Completed processing Wikidata collections");
+            _logger.LogInformation("Processed {Count} collections", collectionCandidates.Count);
+            _logger.LogInformation("========================================");
+        }
+
+        /// <summary>
+        /// Returns a debug string describing what CreateOrUpdateWikidataCollectionAsync would do, without performing any changes.
+        /// </summary>
+        private string GetWikidataCollectionDebugInfo(
+            string collectionName,
+            List<string> imdbIds,
+            List<Movie> allMovies,
+            Dictionary<string, Guid> imdbToMediaId,
+            CollectionIndexData? indexData)
+        {
+            var sb = new StringBuilder();
+            var candidateImdbIds = imdbIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var moviesInLibrary = allMovies
+                .Where(m =>
+                {
+                    if (m.ProviderIds == null) return false;
+                    var id = m.ProviderIds.TryGetValue("Imdb", out var v) ? v : null;
+                    if (string.IsNullOrWhiteSpace(id)) return false;
+                    var normalized = id.Trim();
+                    if (!normalized.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        normalized = "tt" + normalized;
+                    }
+                    return candidateImdbIds.Contains(normalized);
+                })
+                .ToList();
+
+            sb.AppendLine($"  Total franchise members (IMDb): {candidateImdbIds.Count}");
+            sb.AppendLine($"  Movies in library: {moviesInLibrary.Count}");
+            if (moviesInLibrary.Count == 0)
+            {
+                sb.AppendLine("  -> Would skip: no movies in library");
+                return sb.ToString();
+            }
+
+            sb.AppendLine("  Movies in library:");
+            foreach (var m in moviesInLibrary.Take(20))
+            {
+                var imdb = m.ProviderIds?.TryGetValue("Imdb", out var v) == true ? v : "?";
+                sb.AppendLine($"    - {m.Name} (IMDb: {imdb})");
+            }
+            if (moviesInLibrary.Count > 20)
+            {
+                sb.AppendLine($"    ... and {moviesInLibrary.Count - 20} more");
+            }
+
+            var match = FindMatchingCollection(indexData, collectionName, candidateImdbIds, imdbToMediaId, allMovies);
+            if (match.HasValue)
+            {
+                var (matchedCollectionId, isNameMatch) = match.Value;
+                if (matchedCollectionId.HasValue)
+                {
+                    var collection = _libraryManager.GetItemById(matchedCollectionId.Value) as BoxSet;
+                    if (collection != null)
+                    {
+                        var currentMemberIds = indexData != null
+                            ? indexData.GetCollectionMembers(matchedCollectionId.Value)
+                            : collection.GetLinkedChildren().Select(c => c.Id).ToHashSet();
+                        var wantedIds = moviesInLibrary.Select(m => m.Id).ToHashSet();
+                        var missingIds = wantedIds.Except(currentMemberIds).ToList();
+                        var missingCount = missingIds.Count;
+                        sb.AppendLine($"  -> Would MERGE into existing collection '{collection.Name}' (ID: {matchedCollectionId.Value})");
+                        sb.AppendLine($"     Match type: {(isNameMatch ? "Stage 1 (name)" : "Stage 2 (content overlap)")}");
+                        sb.AppendLine($"     Would add {missingCount} missing movie(s)");
+                        return sb.ToString();
+                    }
+                }
+            }
+
+            var boxSet = GetBoxSetByName(collectionName);
+            if (boxSet != null)
+            {
+                sb.AppendLine($"  -> Would UPDATE existing BoxSet '{collectionName}' (ID: {boxSet.Id})");
+                sb.AppendLine($"     Would set/ensure tags: Autocollection, Wikidata");
+                sb.AppendLine($"     Would sync {moviesInLibrary.Count} movie(s) into collection");
+            }
+            else
+            {
+                sb.AppendLine($"  -> Would CREATE new collection '{collectionName}'");
+                sb.AppendLine($"     Tags: Autocollection, Wikidata");
+                sb.AppendLine($"     Would add {moviesInLibrary.Count} movie(s)");
+            }
+
+            return sb.ToString();
+        }
+
+        private async Task CreateOrUpdateWikidataCollectionAsync(
+            string collectionName,
+            List<string> imdbIds,
+            List<Movie> allMovies,
+            Dictionary<string, Guid> imdbToMediaId,
+            CollectionIndexData? indexData)
+        {
+            var candidateImdbIds = imdbIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var moviesInLibrary = allMovies
+                .Where(m =>
+                {
+                    if (m.ProviderIds == null) return false;
+                    var id = m.ProviderIds.TryGetValue("Imdb", out var v) ? v : null;
+                    if (string.IsNullOrWhiteSpace(id)) return false;
+                    var normalized = id.Trim();
+                    if (!normalized.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        normalized = "tt" + normalized;
+                    }
+                    return candidateImdbIds.Contains(normalized);
+                })
+                .ToList();
+
+            if (moviesInLibrary.Count == 0)
+            {
+                _logger.LogInformation("[Wikidata Collection] No movies in library for collection '{CollectionName}'", collectionName);
+                return;
+            }
+
+            var match = FindMatchingCollection(
+                indexData,
+                collectionName,
+                candidateImdbIds,
+                imdbToMediaId,
+                allMovies);
+
+            if (match.HasValue)
+            {
+                var (matchedCollectionId, _) = match.Value;
+                if (matchedCollectionId.HasValue)
+                {
+                    var collection = _libraryManager.GetItemById(matchedCollectionId.Value) as BoxSet;
+                    if (collection == null)
+                    {
+                        _logger.LogWarning("[Wikidata Collection] Matched collection {Id} not found as BoxSet", matchedCollectionId.Value);
+                        return;
+                    }
+
+                    var currentMemberIds = indexData != null
+                        ? indexData.GetCollectionMembers(matchedCollectionId.Value)
+                        : collection.GetLinkedChildren().Select(c => c.Id).ToHashSet();
+
+                    var wantedIds = moviesInLibrary.Select(m => m.Id).ToHashSet();
+                    var missingIds = wantedIds.Except(currentMemberIds).ToList();
+                    var missingMovies = moviesInLibrary.Where(m => missingIds.Contains(m.Id)).ToList();
+
+                    if (missingMovies.Count > 0)
+                    {
+                        _logger.LogInformation("[Wikidata Collection] Merging: adding {Count} missing movies to existing collection '{CollectionName}'",
+                            missingMovies.Count, collection.Name);
+                        await AddWantedMediaItems(collection, missingMovies.Cast<BaseItem>().ToList());
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[Wikidata Collection] Merging: no new movies to add to existing collection '{CollectionName}'", collection.Name);
+                    }
+                    return;
+                }
+            }
+
+            _logger.LogInformation("[Wikidata Collection] Creating/updating new collection: '{CollectionName}'", collectionName);
+            var boxSet = GetBoxSetByName(collectionName);
+            bool isNewCollection = false;
+
+            if (boxSet == null)
+            {
+                var createOptions = new CollectionCreationOptions
+                {
+                    Name = collectionName,
+                    IsLocked = false
+                };
+                boxSet = await _collectionManager.CreateCollectionAsync(createOptions);
+                boxSet.Tags = new[] { "Autocollection", "Wikidata" };
+                isNewCollection = true;
+            }
+            else
+            {
+                var tags = boxSet.Tags?.ToList() ?? new List<string>();
+                if (!tags.Contains("Wikidata"))
+                {
+                    tags.Add("Wikidata");
+                    boxSet.Tags = tags.ToArray();
+                }
+            }
+
+            boxSet.DisplayOrder = "Default";
+            var mediaItems = DedupeMediaItems(moviesInLibrary.Cast<BaseItem>().ToList());
+            await RemoveUnwantedMediaItems(boxSet, mediaItems);
+            await AddWantedMediaItems(boxSet, mediaItems);
+            await SortCollectionBy(boxSet, SortOrder.Descending);
+
+            var updated = _libraryManager.GetItemById(boxSet.Id) as BoxSet;
+            if (updated != null)
+            {
+                ValidateCollectionContent(updated, mediaItems);
+            }
+
+            if (isNewCollection && mediaItems.Count > 0)
+            {
+                await SetPhotoForCollection(boxSet, null);
+            }
+
+            _logger.LogInformation("[Wikidata Collection] Successfully created/updated collection: '{CollectionName}'", collectionName);
         }
         
         private List<BaseItem> DedupeMediaItems(List<BaseItem> mediaItems)
@@ -2167,11 +2696,337 @@ namespace Jellyfin.Plugin.AutoCollections
                 _logger.LogError(ex, "[TMDB Cache] Error saving cache file: {Message}", ex.Message);
             }
         }
+
+        /// <summary>
+        /// Loads Wikidata cache keyed by IMDb ID (like TMDB). New movies added to library trigger API calls for fresh data.
+        /// </summary>
+        private Dictionary<string, WikidataMovieCacheEntry> LoadWikidataCache(string cachePath)
+        {
+            var cache = new Dictionary<string, WikidataMovieCacheEntry>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                if (File.Exists(cachePath))
+                {
+                    var json = File.ReadAllText(cachePath);
+                    if (!string.IsNullOrWhiteSpace(json))
+                    {
+                        var entries = System.Text.Json.JsonSerializer.Deserialize<List<WikidataMovieCacheEntry>>(json, new System.Text.Json.JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+                        if (entries != null)
+                        {
+                            foreach (var entry in entries)
+                            {
+                                if (!string.IsNullOrEmpty(entry.ImdbId))
+                                {
+                                    cache[entry.ImdbId] = entry;
+                                    _logger.LogDebug("[Wikidata Cache] Loaded entry: IMDb {ImdbId}, {SeriesCount} series, Last checked: {LastChecked}",
+                                        entry.ImdbId, entry.SeriesResults?.Count ?? 0, entry.LastChecked);
+                                }
+                            }
+                            _logger.LogInformation("[Wikidata Cache] Loaded {Count} movie entries from cache file", cache.Count);
+                        }
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("[Wikidata Cache] Cache file does not exist, starting with empty cache");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Wikidata Cache] Error loading cache file, starting with empty cache: {Message}", ex.Message);
+            }
+
+            return cache;
+        }
+
+        private void SaveWikidataCache(string cachePath, Dictionary<string, WikidataMovieCacheEntry> cache)
+        {
+            try
+            {
+                var entries = cache.Values.ToList();
+                var json = System.Text.Json.JsonSerializer.Serialize(entries, new System.Text.Json.JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
+                File.WriteAllText(cachePath, json);
+                _logger.LogInformation("[Wikidata Cache] Saved {Count} movie entries to cache file", cache.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Wikidata Cache] Error saving cache file: {Message}", ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Resolves the collection index file path from the user setting.
+        /// Accepts both formats: full path with index.json, or directory path without.
+        /// Returns null if the setting is empty (index loading will be skipped).
+        /// </summary>
+        private static string? ResolveCollectionIndexFilePath(string? userPath)
+        {
+            if (string.IsNullOrWhiteSpace(userPath))
+            {
+                return null;
+            }
+
+            var path = userPath.Trim();
+            if (path.EndsWith("index.json", StringComparison.OrdinalIgnoreCase))
+            {
+                return path;
+            }
+
+            var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return Path.Combine(trimmed, "index.json");
+        }
+
+        private CollectionIndexData? LoadCollectionIndex(string? indexPath)
+        {
+            if (string.IsNullOrWhiteSpace(indexPath))
+            {
+                _logger.LogWarning("[Collection Index] No index path configured. Deduplication will be skipped. Set Collection Index Path in plugin settings.");
+                return null;
+            }
+
+            try
+            {
+                if (!File.Exists(indexPath))
+                {
+                    _logger.LogWarning("[Collection Index] Index file does not exist: {Path}", indexPath);
+                    return null;
+                }
+
+                var json = File.ReadAllText(indexPath);
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    _logger.LogWarning("[Collection Index] Index file is empty");
+                    return null;
+                }
+
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                if (!root.TryGetProperty("index", out var indexElement))
+                {
+                    _logger.LogWarning("[Collection Index] Missing 'index' property in JSON");
+                    return null;
+                }
+
+                var mediaToCollections = new Dictionary<string, List<CollectionIndexEntry>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var prop in indexElement.EnumerateObject())
+                {
+                    var mediaItemId = prop.Name;
+                    var collections = new List<CollectionIndexEntry>();
+                    foreach (var item in prop.Value.EnumerateArray())
+                    {
+                        var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                        var name = item.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                        {
+                            collections.Add(new CollectionIndexEntry { Id = id!, Name = name! });
+                        }
+                    }
+                    if (collections.Count > 0)
+                    {
+                        mediaToCollections[mediaItemId] = collections;
+                    }
+                }
+
+                var result = new CollectionIndexData(mediaToCollections);
+                _logger.LogInformation("[Collection Index] Loaded index with {MediaCount} media items, {CollectionCount} unique collections",
+                    result.MediaItemCount, result.CollectionCount);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Collection Index] Error loading index from {Path}: {Message}", indexPath, ex.Message);
+                return null;
+            }
+        }
+
+        private (Guid? MatchedCollectionId, bool IsNameMatch)? FindMatchingCollection(
+            CollectionIndexData? indexData,
+            string candidateCollectionName,
+            HashSet<string> candidateImdbIds,
+            Dictionary<string, Guid> imdbToMediaId,
+            List<Movie> allMovies)
+        {
+            if (indexData == null)
+            {
+                return null;
+            }
+
+            var candidateCount = candidateImdbIds.Count(imdb => imdbToMediaId.ContainsKey(imdb));
+            if (candidateCount == 0)
+            {
+                return null;
+            }
+
+            var candidateMediaIds = candidateImdbIds
+                .Where(imdb => imdbToMediaId.TryGetValue(imdb, out _))
+                .Select(imdb => imdbToMediaId[imdb])
+                .ToHashSet();
+
+            var collectionNames = indexData.GetAllCollectionNames();
+            foreach (var existingName in collectionNames)
+            {
+                if (string.Equals(existingName, candidateCollectionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    var collectionId = indexData.GetCollectionIdByName(existingName);
+                    if (collectionId.HasValue)
+                    {
+                        _logger.LogInformation("[Wikidata Dedup] Stage 1 name match: '{CandidateName}' matches existing collection {CollectionId}",
+                            candidateCollectionName, collectionId.Value);
+                        return (collectionId.Value, true);
+                    }
+                }
+            }
+
+            var collectionTally = new Dictionary<Guid, int>();
+            foreach (var mediaId in candidateMediaIds)
+            {
+                var collections = indexData.GetCollectionsForMediaItem(mediaId);
+                foreach (var c in collections)
+                {
+                    if (Guid.TryParse(c.Id, out var cid))
+                    {
+                        collectionTally.TryGetValue(cid, out var count);
+                        collectionTally[cid] = count + 1;
+                    }
+                }
+            }
+
+            foreach (var kvp in collectionTally)
+            {
+                var count = kvp.Value;
+                if (count >= 3 && (double)count / candidateCount >= 0.75)
+                {
+                    _logger.LogInformation("[Wikidata Dedup] Stage 2 content overlap: {Count}/{Total} ({Pct}%) match existing collection {CollectionId}",
+                        count, candidateCount, (int)(100.0 * count / candidateCount), kvp.Key);
+                    return (kvp.Key, false);
+                }
+            }
+
+            return null;
+        }
+    }
+
+    internal class CollectionIndexEntry
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+    }
+
+    internal class CollectionIndexData
+    {
+        private readonly Dictionary<string, List<CollectionIndexEntry>> _mediaToCollections;
+        private readonly Dictionary<Guid, HashSet<string>> _collectionToMedia;
+        private readonly Dictionary<string, Guid> _nameToCollectionId;
+
+        public CollectionIndexData(Dictionary<string, List<CollectionIndexEntry>> mediaToCollections)
+        {
+            _mediaToCollections = mediaToCollections;
+            _collectionToMedia = new Dictionary<Guid, HashSet<string>>();
+            _nameToCollectionId = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var kvp in mediaToCollections)
+            {
+                var mediaIdStr = kvp.Key;
+                foreach (var c in kvp.Value)
+                {
+                    if (Guid.TryParse(c.Id, out var collectionId))
+                    {
+                        if (!_collectionToMedia.TryGetValue(collectionId, out var set))
+                        {
+                            set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            _collectionToMedia[collectionId] = set;
+                        }
+                        set.Add(mediaIdStr);
+                        if (!string.IsNullOrEmpty(c.Name) && !_nameToCollectionId.ContainsKey(c.Name))
+                        {
+                            _nameToCollectionId[c.Name] = collectionId;
+                        }
+                    }
+                }
+            }
+        }
+
+        public int MediaItemCount => _mediaToCollections.Count;
+        public int CollectionCount => _collectionToMedia.Count;
+
+        public IReadOnlyCollection<string> GetAllCollectionNames() => _nameToCollectionId.Keys.ToList();
+
+        public Guid? GetCollectionIdByName(string name)
+        {
+            return _nameToCollectionId.TryGetValue(name, out var id) ? id : null;
+        }
+
+        public IReadOnlyList<CollectionIndexEntry> GetCollectionsForMediaItem(Guid mediaId)
+        {
+            var key = mediaId.ToString("N");
+            if (_mediaToCollections.TryGetValue(key, out var list))
+            {
+                return list;
+            }
+            if (_mediaToCollections.TryGetValue(mediaId.ToString(), out list))
+            {
+                return list;
+            }
+            return Array.Empty<CollectionIndexEntry>();
+        }
+
+        public IReadOnlyList<CollectionIndexEntry> GetCollectionsForMediaItem(string mediaIdStr)
+        {
+            if (_mediaToCollections.TryGetValue(mediaIdStr, out var list))
+            {
+                return list;
+            }
+            return Array.Empty<CollectionIndexEntry>();
+        }
+
+        public HashSet<Guid> GetCollectionMembers(Guid collectionId)
+        {
+            if (_collectionToMedia.TryGetValue(collectionId, out var mediaIdStrs))
+            {
+                var result = new HashSet<Guid>();
+                foreach (var s in mediaIdStrs)
+                {
+                    if (Guid.TryParse(s, out var g))
+                    {
+                        result.Add(g);
+                    }
+                }
+                return result;
+            }
+            return new HashSet<Guid>();
+        }
     }
     
     internal class TmdbMovieCacheEntry
     {
         public int TmdbId { get; set; }
+        public DateTime LastChecked { get; set; }
+    }
+
+    /// <summary>
+    /// Cache entry for a movie's Wikidata series lookup. Keyed by IMDb ID (like TMDB cache).
+    /// When new movies are added to the library, they trigger API calls and get fresh data.
+    /// </summary>
+    internal class WikidataMovieCacheEntry
+    {
+        public string ImdbId { get; set; } = string.Empty;
+        public List<WikidataSeriesCacheEntry> SeriesResults { get; set; } = new();
+        public DateTime LastChecked { get; set; }
+    }
+
+    internal class WikidataSeriesCacheEntry
+    {
+        public string SeriesQid { get; set; } = string.Empty;
+        public string CollectionName { get; set; } = string.Empty;
+        public List<string> ImdbIds { get; set; } = new();
         public DateTime LastChecked { get; set; }
     }
 }

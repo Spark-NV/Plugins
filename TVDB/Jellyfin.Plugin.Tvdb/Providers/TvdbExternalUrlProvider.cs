@@ -9,12 +9,17 @@ using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Plugin.Tvdb.Providers
 {
+    /// <summary>
+    /// Provides external urls for TheTVDB.
+    /// </summary>
     public class TvdbExternalUrlProvider : IExternalUrlProvider
     {
         private readonly FrozenSet<string> _supportedOrders = new[] { "official", "regional", "alternate", "altdvd", "dvd", "absolute", "alttwo" }.ToFrozenSet();
 
+        /// <inheritdoc/>
         public string Name => TvdbPlugin.ProviderName;
 
+        /// <inheritdoc/>
         public IEnumerable<string> GetExternalUrls(BaseItem item)
         {
             if (item is null)
@@ -53,6 +58,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
                     }
                     else if (string.Equals(displayOrder, "official", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(externalId))
                     {
+                        // This url format only works for official order
                         yield return TvdbUtils.TvdbBaseUrl + $"dereferrer/season/{externalId}";
                     }
 

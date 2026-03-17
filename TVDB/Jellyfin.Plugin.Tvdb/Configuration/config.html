@@ -69,13 +69,6 @@
                         <input is="emby-checkbox" type="checkbox" id="createStubFilesForMissingEpisodes" />
                         <span>Create stub files for missing episodes</span>
                     </label>
-                    <div class="inputContainer">
-                        <input is="emby-input" id="episodeStubFilePath" type="text"
-                               label="Episode Stub File Path:" placeholder="e.g., C:\Media\episode_stub.mp4"/>
-                        <div class="fieldDescription">
-                            Path to the stub file to copy to episode locations (leave empty to use default episode_stub.mp4)
-                        </div>
-                    </div>
                     <div class="sectionTitleContainer flex align-items-center">
                         <h2 class="sectionTitle">Check for Metadata Updates Scheduled Task Settings:</h2>
                     </div>
@@ -130,12 +123,11 @@
                     document.getElementById('importSeasonName').checked = config.ImportSeasonName
                     document.getElementById('fallbackToOriginalLanguage').checked = config.FallbackToOriginalLanguage;
                     document.getElementById('includeOriginalCountryInTags').checked = config.IncludeOriginalCountryInTags;
-                  
+
                     // Missing Episode Provider Settings
                     document.getElementById('includeMissingSpecials').checked = config.IncludeMissingSpecials;
                     document.getElementById('removeAllMissingEpisodesOnRefresh').checked = config.RemoveAllMissingEpisodesOnRefresh;
                     document.getElementById('createStubFilesForMissingEpisodes').checked = config.CreateStubFilesForMissingEpisodes;
-                    document.getElementById('episodeStubFilePath').value = config.EpisodeStubFilePath || '';
 
                     // Check for Metadata Updates Scheduled Task Settings
                     document.getElementById('metadataUpdateInHours').value = config.MetadataUpdateInHours;
@@ -159,12 +151,11 @@
                     config.ImportSeasonName = document.getElementById('importSeasonName').checked;
                     config.FallbackToOriginalLanguage = document.getElementById('fallbackToOriginalLanguage').checked;
                     config.IncludeOriginalCountryInTags = document.getElementById('includeOriginalCountryInTags').checked;
-                  
+
                     // Missing Episode Provider Settings
                     config.IncludeMissingSpecials = document.getElementById('includeMissingSpecials').checked;
                     config.RemoveAllMissingEpisodesOnRefresh = document.getElementById('removeAllMissingEpisodesOnRefresh').checked;
                     config.CreateStubFilesForMissingEpisodes = document.getElementById('createStubFilesForMissingEpisodes').checked;
-                    config.EpisodeStubFilePath = document.getElementById('episodeStubFilePath').value || '';
 
                     //Check for Metadata Updates Scheduled Task Settings
                     config.MetadataUpdateInHours = document.getElementById('metadataUpdateInHours').value;

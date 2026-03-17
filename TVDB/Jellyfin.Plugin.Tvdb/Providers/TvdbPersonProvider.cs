@@ -19,6 +19,9 @@ using Tvdb.Sdk;
 
 namespace Jellyfin.Plugin.Tvdb.Providers
 {
+    /// <summary>
+    /// Tvdb person provider.
+    /// </summary>
     public class TvdbPersonProvider : IRemoteMetadataProvider<Person, PersonLookupInfo>
     {
         private readonly IHttpClientFactory _httpClientFactory;
@@ -26,6 +29,13 @@ namespace Jellyfin.Plugin.Tvdb.Providers
         private readonly TvdbClientManager _tvdbClientManager;
         private readonly ILibraryManager _libraryManager;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TvdbPersonProvider"/> class.
+        /// </summary>
+        /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
+        /// <param name="logger">Instance of the <see cref="ILogger{TvdbPersonProvider}"/> interface.</param>
+        /// <param name="tvdbClientManager">Instance of <see cref="TvdbClientManager"/>.</param>
+        /// <param name="libraryManager">Instance of <see cref="ILibraryManager"/>.</param>
         public TvdbPersonProvider(
             IHttpClientFactory httpClientFactory,
             ILogger<TvdbPersonProvider> logger,
@@ -38,8 +48,10 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             _libraryManager = libraryManager;
         }
 
+        /// <inheritdoc />
         public string Name => TvdbPlugin.ProviderName;
 
+        /// <inheritdoc />
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(PersonLookupInfo searchInfo, CancellationToken cancellationToken)
         {
             if (searchInfo.IsSupported())
@@ -50,6 +62,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             return await FindPerson(searchInfo.Name, searchInfo.MetadataLanguage, cancellationToken).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<MetadataResult<Person>> GetMetadata(PersonLookupInfo info, CancellationToken cancellationToken)
         {
             var result = new MetadataResult<Person>
@@ -227,6 +240,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
 
                     var tmdbId = peopleResult.RemoteIds?.FirstOrDefault(x => string.Equals(x.SourceName, "TheMovieDB.com", StringComparison.OrdinalIgnoreCase))?.Id.ToString();
 
+                    // Sometimes, tvdb will return tmdbid as {tmdbid}-{title} like in the tmdb url. Grab the tmdbid only.
                     var tmdbIdLeft = StringExtensions.LeftPart(tmdbId, '-').ToString();
                     remoteSearchResult.SetProviderIdIfHasValue(MetadataProvider.Tmdb, tmdbIdLeft);
                 }
@@ -327,6 +341,8 @@ namespace Jellyfin.Plugin.Tvdb.Providers
         {
             Person person = result.Item;
             person.SetTvdbId(tvdbPerson.Id);
+            // Tvdb uses 3 letter code for language (prob ISO 639-2)
+            // Reverts to OriginalName if no translation is found
             person.Name = tvdbPerson.Translations.GetTranslatedNamedOrDefault(info.MetadataLanguage) ?? TvdbUtils.ReturnOriginalLanguageOrDefault(tvdbPerson.Name);
             person.Overview = tvdbPerson.Translations.GetTranslatedOverviewOrDefault(info.MetadataLanguage);
             result.ResultLanguage = info.MetadataLanguage;
@@ -338,6 +354,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             person.SetProviderIdIfHasValue(MetadataProvider.Zap2It, zap2ItId);
 
             var tmdbId = tvdbPerson.RemoteIds?.FirstOrDefault(x => string.Equals(x.SourceName, "TheMovieDB.com", StringComparison.OrdinalIgnoreCase))?.Id.ToString();
+            // Sometimes, tvdb will return tmdbid as {tmdbid}-{title} like in the tmdb url. Grab the tmdbid only.
             var tmdbIdLeft = StringExtensions.LeftPart(tmdbId, '-').ToString();
             person.SetProviderIdIfHasValue(MetadataProvider.Tmdb, tmdbIdLeft);
 
@@ -357,6 +374,7 @@ namespace Jellyfin.Plugin.Tvdb.Providers
             }
         }
 
+        /// <inheritdoc />
         public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
         {
             return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(new Uri(url), cancellationToken);

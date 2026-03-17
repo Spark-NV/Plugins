@@ -1,0 +1,33 @@
+=== REQUEST URL ===
+
+https://query.wikidata.org/sparql?query=%0ASELECT%20DISTINCT%20%3Fseries%20%3FseriesLabel%20%3FimdbId%20WHERE%20%7B%0A%20%20%3Fmovie%20wdt%3AP345%20%22tt3160230%22%20.%0A%20%20%3Fmovie%20p%3AP179/ps%3AP179%20%3Fseries%20.%0A%20%20%3Fseries%20rdfs%3Alabel%20%3FseriesLabel%20.%0A%20%20FILTER%28LANG%28%3FseriesLabel%29%20%3D%20%22en%22%29%0A%20%20%7B%0A%20%20%20%20%7B%0A%20%20%20%20%20%20%3Fseries%20wdt%3AP527%20%3Fmember%20.%0A%20%20%20%20%20%20%3Fmember%20wdt%3AP31/wdt%3AP279%2A%20wd%3AQ11424%20.%0A%20%20%20%20%7D%0A%20%20%20%20UNION%0A%20%20%20%20%7B%0A%20%20%20%20%20%20%3Fseries%20wdt%3AP1445%20%3Fmember%20.%0A%20%20%20%20%20%20%3Fmember%20wdt%3AP31/wdt%3AP279%2A%20wd%3AQ11424%20.%0A%20%20%20%20%7D%0A%20%20%20%20UNION%0A%20%20%20%20%7B%0A%20%20%20%20%20%20%23%20No%20type%20filter%20on%20sibling%20branch%20-%20trust%20P179%20relationship%0A%20%20%20%20%20%20%3Fmember%20p%3AP179/ps%3AP179%20%3Fseries%20.%0A%20%20%20%20%7D%0A%20%20%7D%0A%20%20%3Fmember%20wdt%3AP345%20%3FimdbId%20.%0A%20%20FILTER%28STRSTARTS%28%3FimdbId%2C%20%22tt%22%29%29%0A%7D%0AORDER%20BY%20%3Fseries%20%3FimdbId%0ALIMIT%201000&format=json
+
+=== SPARQL QUERY ===
+
+
+SELECT DISTINCT ?series ?seriesLabel ?imdbId WHERE {
+  ?movie wdt:P345 "tt3160230" .
+  ?movie p:P179/ps:P179 ?series .
+  ?series rdfs:label ?seriesLabel .
+  FILTER(LANG(?seriesLabel) = "en")
+  {
+    {
+      ?series wdt:P527 ?member .
+      ?member wdt:P31/wdt:P279* wd:Q11424 .
+    }
+    UNION
+    {
+      ?series wdt:P1445 ?member .
+      ?member wdt:P31/wdt:P279* wd:Q11424 .
+    }
+    UNION
+    {
+      # No type filter on sibling branch - trust P179 relationship
+      ?member p:P179/ps:P179 ?series .
+    }
+  }
+  ?member wdt:P345 ?imdbId .
+  FILTER(STRSTARTS(?imdbId, "tt"))
+}
+ORDER BY ?series ?imdbId
+LIMIT 1000

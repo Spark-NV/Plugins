@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Plugins;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -122,7 +122,12 @@ namespace Jellyfin.Plugin.AutoCollections.Configuration
             IsInitialized = false;
             
             TmdbApiKey = string.Empty;
+            TmdbReadAccessToken = string.Empty;
             EnableTmdbCollections = false;
+            EnableWikidataCollections = false;
+            CollectionIndexPath = string.Empty;
+            WikidataDebug = false;
+            WikidataDebugMovieLimit = 10;
         }
 
         public List<TitleMatchPair> TitleMatchPairs { get; set; }
@@ -131,8 +136,23 @@ namespace Jellyfin.Plugin.AutoCollections.Configuration
         
         public bool IsInitialized { get; set; }
         
+        /// <summary>TMDB API Key (v3) - used as ?api_key= in requests when Read Access Token is not set.</summary>
         public string TmdbApiKey { get; set; }
+        /// <summary>TMDB API Read Access Token (v4) - used as Bearer token; preferred over API Key when both are set.</summary>
+        public string TmdbReadAccessToken { get; set; }
         public bool EnableTmdbCollections { get; set; }
+
+        /// <summary>Enable Wikidata franchise/sequel collections from SPARQL API.</summary>
+        public bool EnableWikidataCollections { get; set; }
+
+        /// <summary>Optional path to CollectionIndex index.json. If empty, uses default under DataPath/plugins/Jellyfin.Plugin.CollectionIndex/.</summary>
+        public string CollectionIndexPath { get; set; }
+
+        /// <summary>When enabled, Wikidata collection processing does not create collections; it only performs API requests and writes a debug log.</summary>
+        public bool WikidataDebug { get; set; }
+
+        /// <summary>When WikidataDebug is enabled, limits how many movies to check with Wikidata (1–1000).</summary>
+        public int WikidataDebugMovieLimit { get; set; }
         
         [Obsolete("Use TitleMatchPairs instead")]
         public List<TagTitlePair> TagTitlePairs { get; set; }

@@ -61,7 +61,11 @@ namespace Jellyfin.Plugin.AutoCollections.Api
                 TitleMatchPairs = config.TitleMatchPairs,
                 ExpressionCollections = config.ExpressionCollections,
                 TmdbApiKey = config.TmdbApiKey,
-                EnableTmdbCollections = config.EnableTmdbCollections
+                EnableTmdbCollections = config.EnableTmdbCollections,
+                EnableWikidataCollections = config.EnableWikidataCollections,
+                CollectionIndexPath = config.CollectionIndexPath,
+                WikidataDebug = config.WikidataDebug,
+                WikidataDebugMovieLimit = config.WikidataDebugMovieLimit
             };
             
             var options = new JsonSerializerOptions
@@ -126,7 +130,17 @@ namespace Jellyfin.Plugin.AutoCollections.Api
                     currentConfig.TmdbApiKey = importedConfig.TmdbApiKey;
                 }
                 currentConfig.EnableTmdbCollections = importedConfig.EnableTmdbCollections;
-                
+                currentConfig.EnableWikidataCollections = importedConfig.EnableWikidataCollections;
+                if (!string.IsNullOrWhiteSpace(importedConfig.CollectionIndexPath))
+                {
+                    currentConfig.CollectionIndexPath = importedConfig.CollectionIndexPath;
+                }
+                currentConfig.WikidataDebug = importedConfig.WikidataDebug;
+                if (importedConfig.WikidataDebugMovieLimit >= 1 && importedConfig.WikidataDebugMovieLimit <= 1000)
+                {
+                    currentConfig.WikidataDebugMovieLimit = importedConfig.WikidataDebugMovieLimit;
+                }
+
                 Plugin.Instance.SaveConfiguration();
                 
                 _logger.LogInformation("Configuration imported successfully");
@@ -212,6 +226,22 @@ namespace Jellyfin.Plugin.AutoCollections.Api
                 if (configToAdd.EnableTmdbCollections)
                 {
                     currentConfig.EnableTmdbCollections = configToAdd.EnableTmdbCollections;
+                }
+                if (configToAdd.EnableWikidataCollections)
+                {
+                    currentConfig.EnableWikidataCollections = configToAdd.EnableWikidataCollections;
+                }
+                if (!string.IsNullOrWhiteSpace(configToAdd.CollectionIndexPath))
+                {
+                    currentConfig.CollectionIndexPath = configToAdd.CollectionIndexPath;
+                }
+                if (configToAdd.WikidataDebug)
+                {
+                    currentConfig.WikidataDebug = configToAdd.WikidataDebug;
+                }
+                if (configToAdd.WikidataDebugMovieLimit >= 1 && configToAdd.WikidataDebugMovieLimit <= 1000)
+                {
+                    currentConfig.WikidataDebugMovieLimit = configToAdd.WikidataDebugMovieLimit;
                 }
 
                 Plugin.Instance.SaveConfiguration();

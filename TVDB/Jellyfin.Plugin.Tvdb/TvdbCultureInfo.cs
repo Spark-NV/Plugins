@@ -5,6 +5,9 @@ using MediaBrowser.Model.Globalization;
 
 namespace Jellyfin.Plugin.Tvdb
 {
+    /// <summary>
+    /// Tvdb culture info.
+    /// </summary>
     internal static class TvdbCultureInfo
     {
         private static CultureDto[] _cultures = Array.Empty<CultureDto>();
@@ -20,6 +23,11 @@ namespace Jellyfin.Plugin.Tvdb
             _countries = countries;
         }
 
+        /// <summary>
+        /// Gets the cultureinfo for the given language.
+        /// </summary>
+        /// <param name="language">Language.</param>
+        /// <returns>CultureInfo.</returns>
         internal static CultureDto? GetCultureInfo(string language)
         {
             foreach (var culture in _cultures)
@@ -36,6 +44,11 @@ namespace Jellyfin.Plugin.Tvdb
             return default;
         }
 
+        /// <summary>
+        /// Gets the CountryInfo for the given country.
+        /// </summary>
+        /// <param name="country"> Country.</param>
+        /// <returns>CountryInfo.</returns>
         internal static CountryInfo? GetCountryInfo(string country)
         {
             foreach (var countryInfo in _countries)

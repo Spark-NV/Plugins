@@ -2,14 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
     <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
-    <NoWarn>$(NoWarn);1591;SA0001</NoWarn>
-    <WarningsNotAsErrors>1591;SA0001</WarningsNotAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

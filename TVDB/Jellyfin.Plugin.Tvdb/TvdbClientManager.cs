@@ -22,6 +22,9 @@ using Type = Tvdb.Sdk.Type;
 
 namespace Jellyfin.Plugin.Tvdb;
 
+/// <summary>
+/// Tvdb client manager.
+/// </summary>
 public class TvdbClientManager : IDisposable
 {
     private const string TvdbHttpClient = "TvdbHttpClient";
@@ -34,6 +37,11 @@ public class TvdbClientManager : IDisposable
 
     private DateTime _tokenUpdatedAt;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TvdbClientManager"/> class.
+    /// </summary>
+    /// <param name="applicationHost">Instance of the <see cref="IApplicationHost"/> interface.</param>
+    /// <param name="localizationManager">Instance of the <see cref="ILocalizationManager"/> interface.</param>
     public TvdbClientManager(IApplicationHost applicationHost, ILocalizationManager localizationManager)
     {
         _serviceProvider = ConfigureService(applicationHost);
@@ -43,6 +51,7 @@ public class TvdbClientManager : IDisposable
 
         _tokenUpdatedAt = DateTime.MinValue;
 
+        // Set the cultures and countries for the TvdbCultureInfo
         TvdbCultureInfo.SetCultures(localizationManager.GetCultures().ToArray());
         TvdbCultureInfo.SetCountries(localizationManager.GetCountries().ToArray());
     }
@@ -53,10 +62,14 @@ public class TvdbClientManager : IDisposable
 
     private static int CacheDurationInDays => TvdbPlugin.Instance?.Configuration.CacheDurationInDays ?? 7;
 
+    /// <summary>
+    /// Logs in or refresh login to the tvdb api when needed.
+    /// </summary>
     private async Task LoginAsync()
     {
         var loginClient = _serviceProvider.GetRequiredService<ILoginClient>();
 
+        // Ensure we have a recent token.
         if (IsTokenInvalid())
         {
             await _tokenUpdateLock.WaitAsync().ConfigureAwait(false);
@@ -88,6 +101,12 @@ public class TvdbClientManager : IDisposable
             || _tokenUpdatedAt < DateTime.UtcNow.Subtract(TimeSpan.FromDays(25));
     }
 
+    /// <summary>
+    /// Gets movie by name.
+    /// </summary>
+    /// <param name="name">Movie Name.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The movie search result.</returns>
     public async Task<IReadOnlyList<SearchResult>> GetMovieByNameAsync(
         string name,
         CancellationToken cancellationToken)
@@ -107,6 +126,12 @@ public class TvdbClientManager : IDisposable
         return searchResult.Data;
     }
 
+    /// <summary>
+    /// Get movie by remoteId.
+    /// </summary>
+    /// <param name="remoteId">Remote Id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The movie search result.</returns>
     public async Task<IReadOnlyList<SearchByRemoteIdResult>> GetMovieByRemoteIdAsync(
         string remoteId,
         CancellationToken cancellationToken)
@@ -123,6 +148,7 @@ public class TvdbClientManager : IDisposable
         var searchResult = await searchClient.GetSearchResultsByRemoteIdAsync(remoteId: remoteId, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
+        // Some movies are part of the a series in tvdb and thus episode results are returned with movie results. Filter out the episodes.
         var filteredMovies = searchResult.Data?.Where(x => x.Movie?.Id is not null).ToList();
         if (filteredMovies is not null)
         {
@@ -134,6 +160,12 @@ public class TvdbClientManager : IDisposable
         return Array.Empty<SearchByRemoteIdResult>();
     }
 
+    /// <summary>
+    /// Get movie by id.
+    /// </summary>
+    /// <param name="tvdbId">The movie tvdb id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The movie response.</returns>
     public async Task<MovieExtendedRecord> GetMovieExtendedByIdAsync(
         int tvdbId,
         CancellationToken cancellationToken)
@@ -153,6 +185,13 @@ public class TvdbClientManager : IDisposable
         return movieResult.Data;
     }
 
+    /// <summary>
+    /// Get series by name.
+    /// </summary>
+    /// <param name="name">Series name.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The series search result.</returns>
     public async Task<IReadOnlyList<SearchResult>> GetSeriesByNameAsync(
         string name,
         string language,
@@ -173,6 +212,13 @@ public class TvdbClientManager : IDisposable
         return searchResult.Data;
     }
 
+    /// <summary>
+    /// Get series by id.
+    /// </summary>
+    /// <param name="tvdbId">The series tvdb id.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The series response.</returns>
     public async Task<SeriesBaseRecord> GetSeriesByIdAsync(
         int tvdbId,
         string language,
@@ -193,6 +239,15 @@ public class TvdbClientManager : IDisposable
         return seriesResult.Data;
     }
 
+    /// <summary>
+    /// Get series by id.
+    /// </summary>
+    /// <param name="tvdbId">The series tvdb id.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="meta">episodes or translations.</param>
+    /// <param name="small">Payload size. True for smaller payload.</param>
+    /// <returns>The series response.</returns>
     public async Task<SeriesExtendedRecord> GetSeriesExtendedByIdAsync(
         int tvdbId,
         string language,
@@ -215,6 +270,14 @@ public class TvdbClientManager : IDisposable
         return seriesResult.Data;
     }
 
+    /// <summary>
+    /// Get all episodes of series.
+    /// </summary>
+    /// <param name="tvdbId">The series tvdb id.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="seasonType">Season type: default, dvd, absolute etc.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>All episodes of series.</returns>
     public async Task<Data2> GetSeriesEpisodesAsync(
         int tvdbId,
         string language,
@@ -236,6 +299,13 @@ public class TvdbClientManager : IDisposable
         return seriesResult.Data;
     }
 
+    /// <summary>
+    /// Get Season record.
+    /// </summary>
+    /// <param name="seasonTvdbId">The season tvdb id.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episode record.</returns>
     public async Task<CustomSeasonExtendedRecord> GetSeasonByIdAsync(
         int seasonTvdbId,
         string language,
@@ -256,6 +326,13 @@ public class TvdbClientManager : IDisposable
         return seasonResult.Data;
     }
 
+    /// <summary>
+    /// Get episode record.
+    /// </summary>
+    /// <param name="episodeTvdbId">The episode tvdb id.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episode record.</returns>
     public async Task<EpisodeExtendedRecord> GetEpisodesAsync(
         int episodeTvdbId,
         string language,
@@ -276,6 +353,13 @@ public class TvdbClientManager : IDisposable
         return episodeResult.Data;
     }
 
+    /// <summary>
+    /// Get series by remoteId.
+    /// </summary>
+    /// <param name="remoteId">The remote id. Supported RemoteIds are: IMDB, TMDB, Zap2It, TV Maze and EIDR.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The series search result.</returns>
     public async Task<IReadOnlyList<SearchByRemoteIdResult>> GetSeriesByRemoteIdAsync(
         string remoteId,
         string language,
@@ -296,6 +380,12 @@ public class TvdbClientManager : IDisposable
         return searchResult.Data;
     }
 
+    /// <summary>
+    /// Gets Actor by name.
+    /// </summary>
+    /// <param name="name">Name.</param>
+    /// <param name="cancellationToken">Cancellation Token.</param>
+    /// <returns>Search Results.</returns>
     public async Task<IReadOnlyList<SearchResult>> GetActorByNameAsync(
         string name,
         CancellationToken cancellationToken)
@@ -315,6 +405,12 @@ public class TvdbClientManager : IDisposable
         return searchResult.Data;
     }
 
+    /// <summary>
+    /// Get Actor by remoteId.
+    /// </summary>
+    /// <param name="remoteId">Remote Id.</param>
+    /// <param name="cancellationToken">Cancellation Token.</param>
+    /// <returns>Searched results.</returns>
     public async Task<IReadOnlyList<SearchByRemoteIdResult>> GetActorByRemoteIdAsync(
         string remoteId,
         CancellationToken cancellationToken)
@@ -334,6 +430,12 @@ public class TvdbClientManager : IDisposable
         return searchResult.Data;
     }
 
+    /// <summary>
+    /// Get actors by tvdb id.
+    /// </summary>
+    /// <param name="tvdbId">People Tvdb id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The actors attached to the id.</returns>
     public async Task<PeopleExtendedRecord> GetActorExtendedByIdAsync(
         int tvdbId,
         CancellationToken cancellationToken)
@@ -353,6 +455,13 @@ public class TvdbClientManager : IDisposable
         return peopleResult.Data;
     }
 
+    /// <summary>
+    /// Get image by image tvdb id.
+    /// </summary>
+    /// <param name="imageTvdbId"> Tvdb id.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The images attached to the id.</returns>
     public async Task<ArtworkExtendedRecord> GetImageAsync(
         int imageTvdbId,
         string language,
@@ -373,6 +482,13 @@ public class TvdbClientManager : IDisposable
         return artworkResult.Data;
     }
 
+    /// <summary>
+    /// Get image by series tvdb id.
+    /// </summary>
+    /// <param name="tvdbId"> Tvdb id.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The images attached to the id.</returns>
     public async Task<SeriesExtendedRecord> GetSeriesImagesAsync(
         int tvdbId,
         string language,
@@ -393,6 +509,11 @@ public class TvdbClientManager : IDisposable
         return seriesResult.Data;
     }
 
+    /// <summary>
+    /// Get all tvdb languages.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>All tvdb languages.</returns>
     public async Task<IReadOnlyList<Language>> GetLanguagesAsync(CancellationToken cancellationToken)
     {
         var key = "TvdbLanguages";
@@ -410,6 +531,11 @@ public class TvdbClientManager : IDisposable
         return languagesResult.Data;
     }
 
+    /// <summary>
+    /// Gets all tvdb artwork types.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation Token.</param>
+    /// <returns>All tvdb artwork types.</returns>
     public async Task<IReadOnlyList<ArtworkType>> GetArtworkTypeAsync(CancellationToken cancellationToken)
     {
         var key = "TvdbArtworkTypes";
@@ -427,6 +553,11 @@ public class TvdbClientManager : IDisposable
         return artworkTypesResult.Data;
     }
 
+    /// <summary>
+    /// Gets all tvdb Countries.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation Token.</param>
+    /// <returns>All tvdb countries.</returns>
     public async Task<IReadOnlyList<Country>> GetCountriesAsync(CancellationToken cancellationToken)
     {
         var key = "TvdbCountries";
@@ -444,6 +575,13 @@ public class TvdbClientManager : IDisposable
         return countriesResult.Data;
     }
 
+    /// <summary>
+    /// Get an episode's tvdb id.
+    /// </summary>
+    /// <param name="searchInfo">Episode search info.</param>
+    /// <param name="language">Metadata language.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The tvdb id.</returns>
     public async Task<string?> GetEpisodeTvdbId(
         EpisodeInfo searchInfo,
         string language,
@@ -462,6 +600,7 @@ public class TvdbClientManager : IDisposable
         string? airDate = null;
         bool special = false;
         string? key = null;
+        // Prefer SxE over premiere date as it is more robust
         if (searchInfo.IndexNumber.HasValue)
         {
             switch (searchInfo.SeriesDisplayOrder)
@@ -488,6 +627,7 @@ public class TvdbClientManager : IDisposable
                     episodeNumber = searchInfo.IndexNumber.Value;
                     break;
                 default:
+                    // aired order
                     episodeNumber = searchInfo.IndexNumber.Value;
                     seasonNumber = searchInfo.ParentIndexNumber ?? 1;
                     break;
@@ -497,6 +637,7 @@ public class TvdbClientManager : IDisposable
         }
         else if (searchInfo.PremiereDate.HasValue)
         {
+            // tvdb expects yyyy-mm-dd format
             airDate = searchInfo.PremiereDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             key = $"FindTvdbEpisodeId_{seriesTvdbIdString}_{airDate}";
         }
@@ -524,7 +665,7 @@ public class TvdbClientManager : IDisposable
                     break;
             }
         }
-        else
+        else // when special use aired order
         {
             seriesResponse = await seriesClient.GetSeriesEpisodesAsync(page: 0, id: seriesTvdbId, season_type: "official", season: seasonNumber, episodeNumber: episodeNumber, airDate: airDate, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
@@ -547,6 +688,14 @@ public class TvdbClientManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Gets updates from tvdb since a given time. No caching.
+    /// </summary>
+    /// <param name="fromTime">From time in unix timestamp.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="type"> Type of data.</param>
+    /// <param name="action">Delete, update or null.</param>
+    /// <returns>A list of updates.</returns>
     public async Task<IReadOnlyList<EntityUpdate>> GetUpdates(
         double fromTime,
         CancellationToken cancellationToken,
@@ -558,6 +707,7 @@ public class TvdbClientManager : IDisposable
         var updatesResult = await updatesClient.UpdatesAsync(since: fromTime, type: type, action: action, cancellationToken: cancellationToken).ConfigureAwait(false);
         var updates = updatesResult.Data.ToList();
 
+        // Each page has limit of 500 updates. Get all updates starting from page 1. First page (page 0) is already fetched.
         int page = 1;
         while (updatesResult.Links.Next != null)
         {
@@ -569,6 +719,10 @@ public class TvdbClientManager : IDisposable
         return updates;
     }
 
+    /// <summary>
+    /// Purge the cache.
+    /// </summary>
+    /// <returns>True if success else false.</returns>
     public bool PurgeCache()
     {
         if (_memoryCache is MemoryCache memoryCache)
@@ -582,6 +736,12 @@ public class TvdbClientManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Create an independent ServiceProvider because registering HttpClients directly into Jellyfin
+    /// causes issues upstream.
+    /// </summary>
+    /// <param name="applicationHost">Instance of the <see cref="IApplicationHost"/>.</param>
+    /// <returns>The service provider.</returns>
     private ServiceProvider ConfigureService(IApplicationHost applicationHost)
     {
         var productHeader = ProductInfoHeaderValue.Parse(applicationHost.ApplicationUserAgent);
@@ -624,12 +784,17 @@ public class TvdbClientManager : IDisposable
         return services.BuildServiceProvider();
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
        Dispose(true);
        GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// Releases unmanaged and - optionally - managed resources.
+    /// </summary>
+    /// <param name="disposing"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
     protected virtual void Dispose(bool disposing)
     {
         if (disposing)
