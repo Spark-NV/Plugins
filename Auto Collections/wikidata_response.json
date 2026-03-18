@@ -1,8 +1,0 @@
-{
-  "head" : {
-    "vars" : [ "series", "seriesLabel", "imdbId" ]
-  },
-  "results" : {
-    "bindings" : [ ]
-  }
-}

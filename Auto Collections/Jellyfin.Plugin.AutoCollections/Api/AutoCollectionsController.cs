@@ -158,6 +158,21 @@ namespace Jellyfin.Plugin.AutoCollections.Api
             }
         }
 
+        [HttpPost("VerifyCollectionIndexPath")]
+        [Consumes("application/json")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public IActionResult VerifyCollectionIndexPath([FromBody] VerifyCollectionIndexRequest request)
+        {
+            var path = request?.Path?.Trim();
+            var (success, message, resolvedPath, totalCollections) = _syncAutoCollectionsManager.VerifyCollectionIndexPath(path);
+            if (success)
+            {
+                return Ok(new { Success = true, Message = message, ResolvedPath = resolvedPath, TotalCollections = totalCollections });
+            }
+
+            return Ok(new { Success = false, Message = message, ResolvedPath = resolvedPath, TotalCollections = (int?)null });
+        }
+
         [HttpPost("AddConfiguration")]
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -266,5 +281,11 @@ namespace Jellyfin.Plugin.AutoCollections.Api
             var lineCommentRegex = new System.Text.RegularExpressions.Regex(@"\/\/.*?$", System.Text.RegularExpressions.RegexOptions.Multiline);
             return lineCommentRegex.Replace(json, string.Empty);
         }
+    }
+
+    public class VerifyCollectionIndexRequest
+    {
+        [JsonPropertyName("path")]
+        public string? Path { get; set; }
     }
 }

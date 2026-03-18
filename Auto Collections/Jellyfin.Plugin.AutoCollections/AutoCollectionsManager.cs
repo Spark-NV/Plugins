@@ -2847,6 +2847,62 @@ namespace Jellyfin.Plugin.AutoCollections
             }
         }
 
+        /// <summary>
+        /// Verifies that the given path points to a valid CollectionIndex index.json file.
+        /// Checks file existence and that the JSON contains "totalCollections" with a numeric value.
+        /// </summary>
+        public (bool Success, string Message, string? ResolvedPath, int? TotalCollections) VerifyCollectionIndexPath(string? userPath)
+        {
+            if (string.IsNullOrWhiteSpace(userPath))
+            {
+                return (false, "Path is empty.", null, null);
+            }
+
+            var resolvedPath = ResolveCollectionIndexFilePath(userPath.Trim());
+            if (string.IsNullOrEmpty(resolvedPath))
+            {
+                return (false, "Could not resolve path.", null, null);
+            }
+
+            try
+            {
+                if (!File.Exists(resolvedPath))
+                {
+                    return (false, "File not found: " + resolvedPath, resolvedPath, null);
+                }
+
+                var json = File.ReadAllText(resolvedPath);
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    return (false, "File is empty.", resolvedPath, null);
+                }
+
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                if (!root.TryGetProperty("totalCollections", out var totalCollectionsEl))
+                {
+                    return (false, "Invalid index: 'totalCollections' not found.", resolvedPath, null);
+                }
+
+                if (totalCollectionsEl.ValueKind != System.Text.Json.JsonValueKind.Number || !totalCollectionsEl.TryGetInt32(out var totalCollections))
+                {
+                    return (false, "Invalid index: 'totalCollections' must be a number.", resolvedPath, null);
+                }
+
+                return (true, "Valid index file.", resolvedPath, totalCollections);
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                return (false, "Invalid JSON: " + ex.Message, resolvedPath, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Collection Index] Error verifying index at {Path}: {Message}", resolvedPath, ex.Message);
+                return (false, "Error reading file: " + ex.Message, resolvedPath, null);
+            }
+        }
+
         private (Guid? MatchedCollectionId, bool IsNameMatch)? FindMatchingCollection(
             CollectionIndexData? indexData,
             string candidateCollectionName,

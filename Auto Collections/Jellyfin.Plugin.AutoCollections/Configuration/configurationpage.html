@@ -129,13 +129,25 @@
                     <label for="enable-wikidata-collections" style="font-size: 14px; cursor: pointer;">Enable Wikidata Collection Creation</label>
                   </div>
                   <label for="collection-index-path" style="display: block; font-size: 12px; margin-top: 12px; color: rgba(255,255,255,0.7);">Collection Index Path</label>
-                  <input
-                    id="collection-index-path"
-                    is="emby-input"
-                    type="text"
-                    placeholder="e.g. C:\Jellyfin\Data\data\plugins\Jellyfin.Plugin.CollectionIndex\index.json or ...\Jellyfin.Plugin.CollectionIndex\"
-                    style="width: 100%; max-width: 500px; margin-top: 4px;"
-                  />
+                  <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap;">
+                    <input
+                      id="collection-index-path"
+                      is="emby-input"
+                      type="text"
+                      placeholder="e.g. C:\Jellyfin\Data\data\plugins\Jellyfin.Plugin.CollectionIndex\index.json or ...\Jellyfin.Plugin.CollectionIndex\"
+                      style="flex: 1; min-width: 200px; max-width: 500px;"
+                    />
+                    <button
+                      id="verify-collection-index-btn"
+                      is="emby-button"
+                      type="button"
+                      class="raised"
+                      style="flex: 0 0 auto;"
+                    >
+                      <span>Verify</span>
+                    </button>
+                  </div>
+                  <div id="verify-collection-index-result" style="margin-top: 6px; font-size: 12px;"></div>
                   <div class="help-text" style="margin-top: 6px;">Path to CollectionIndex index.json. Accepts full path or directory (index.json appended automatically). Required for deduplication. Requires the CollectionIndex plugin.</div>
                   <div style="margin-top: 16px; padding: 12px; border: 1px solid rgba(128,128,128,0.3); border-radius: 4px; background: rgba(0,0,0,0.05);">
                     <div style="display: flex; align-items: center; margin-bottom: 8px;">
@@ -563,6 +575,8 @@
               if (collectionIndexPathInput && config.CollectionIndexPath) {
                 collectionIndexPathInput.value = config.CollectionIndexPath;
               }
+              const verifyResultEl = document.getElementById('verify-collection-index-result');
+              if (verifyResultEl) verifyResultEl.textContent = '';
               const wikidataDebugCheckbox = document.querySelector("#wikidata-debug");
               const wikidataDebugMovieLimitInput = document.querySelector("#wikidata-debug-movie-limit");
               if (wikidataDebugCheckbox) {
@@ -854,6 +868,42 @@
         }, 100);
         
         document.querySelector("#saveConfiguration").addEventListener("click", saveConfig);
+        document.getElementById('verify-collection-index-btn').addEventListener('click', function() {
+          const input = document.querySelector("#collection-index-path");
+          const resultEl = document.getElementById('verify-collection-index-result');
+          const path = input ? input.value.trim() : '';
+          resultEl.textContent = '';
+          resultEl.style.color = '';
+          if (!path) {
+            resultEl.textContent = 'Enter a path first.';
+            resultEl.style.color = '#D8000C';
+            return;
+          }
+          resultEl.textContent = 'Checking...';
+          resultEl.style.color = 'rgba(255,255,255,0.7)';
+          fetch(ApiClient.getUrl('AutoCollections/VerifyCollectionIndexPath'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-MediaBrowser-Token': ApiClient.accessToken()
+            },
+            body: JSON.stringify({ path: path })
+          })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+              if (data.Success) {
+                resultEl.textContent = data.Message + (data.TotalCollections != null ? ' (totalCollections: ' + data.TotalCollections + ')' : '');
+                resultEl.style.color = '#4F8A10';
+              } else {
+                resultEl.textContent = data.Message || 'Verification failed.';
+                resultEl.style.color = '#D8000C';
+              }
+            })
+            .catch(function(err) {
+              resultEl.textContent = 'Error: ' + (err.message || 'Could not verify path.');
+              resultEl.style.color = '#D8000C';
+            });
+        });
         document.querySelector("#add-title-match-button").addEventListener("click", function() {
           const element = createTitleMatchPairElement();
           document.querySelector("#title-match-pairs").appendChild(element);
